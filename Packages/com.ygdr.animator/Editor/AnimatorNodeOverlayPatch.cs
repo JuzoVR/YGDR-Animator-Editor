@@ -141,8 +141,17 @@ namespace YGDR.Editor.Animation
 
             if (settings.overlayShowLoop && hasMotion)
             {
-                GUI.contentColor = IsLooping(state.motion) ? settings.overlayActiveColor : settings.overlayInactiveColor;
-                GUI.Label(new Rect(nodeRect.x + 2f,  nodeRect.y + -26f, 16f, 15f), "↻", LoopStyle);
+                var loopRect = new Rect(nodeRect.x + 2f, nodeRect.y + -26f, 16f, 15f);
+                if (state.motion is BlendTree)
+                {
+                    GUI.contentColor = settings.overlayActiveColor;
+                    GUI.Label(loopRect, EditorGUIUtility.IconContent("d_BlendTree Icon"), LoopStyle);
+                }
+                else
+                {
+                    GUI.contentColor = IsLooping(state.motion) ? settings.overlayActiveColor : settings.overlayInactiveColor;
+                    GUI.Label(loopRect, EditorGUIUtility.IconContent("d_preaudioloopoff@2x"), LoopStyle);
+                }
             }
 
             if (settings.overlayShowEmpty && !hasMotion)
@@ -419,14 +428,14 @@ namespace YGDR.Editor.Animation
     internal static class PatchNodeStyles
     {
         static readonly Dictionary<string, GUIStyle> _styleCache = new();
-        static readonly Dictionary<(Color, bool, bool, bool), Texture2D> _texCache = new();
+        static readonly Dictionary<(Color, bool, bool, bool, Color), Texture2D> _texCache = new();
 
         static Texture2D _baseNode;
         static Texture2D _baseNodeActive;
         static Texture2D _baseSubSM;
         static Texture2D _baseSubSMActive;
 
-        static (Color state, Color def, Color subSM, Color entry, Color exit, Color any) _cachedColors;
+        static (Color state, Color def, Color subSM, Color entry, Color exit, Color any, Color selection) _cachedColors;
         static bool _cached3DEnabled;
 
         [HarmonyTargetMethods]
@@ -458,15 +467,15 @@ namespace YGDR.Editor.Animation
 
                 bool isSubStateMachine = styleName == "node hex";
                 var nodeColor          = ResolveColor(styleName, color, settings);
-                var texKey             = (nodeColor, isSubStateMachine, on, settings.nodeColor3DEnabled);
+                var texKey             = (nodeColor, isSubStateMachine, on, settings.nodeColor3DEnabled, settings.nodeSelectionColor);
 
                 if (!_texCache.TryGetValue(texKey, out var nodeTexture))
                 {
                     var baseNormal        = isSubStateMachine ? _baseSubSM       : _baseNode;
                     var baseActiveTexture = isSubStateMachine ? _baseSubSMActive : _baseNodeActive;
                     nodeTexture = settings.nodeColor3DEnabled
-                        ? (on ? GradientCompositeClone(baseNormal, nodeColor, baseActiveTexture) : GradientTintClone(baseNormal, nodeColor))
-                        : (on ? CompositeClone(baseNormal, nodeColor, baseActiveTexture)         : TintClone(baseNormal, nodeColor));
+                        ? (on ? GradientCompositeClone(baseNormal, nodeColor, baseActiveTexture, settings.nodeSelectionColor) : GradientTintClone(baseNormal, nodeColor))
+                        : (on ? CompositeClone(baseNormal, nodeColor, baseActiveTexture, settings.nodeSelectionColor)         : TintClone(baseNormal, nodeColor));
                     _texCache[texKey] = nodeTexture;
                 }
 
@@ -499,7 +508,7 @@ namespace YGDR.Editor.Animation
         static bool ColorsChanged(AnimatorDefaultSettings settings)
         {
             var current = (settings.stateNodeColor, settings.defaultStateColor, settings.subStateMachineColor,
-                           settings.entryNodeColor, settings.exitNodeColor, settings.anyStateNodeColor);
+                           settings.entryNodeColor, settings.exitNodeColor, settings.anyStateNodeColor, settings.nodeSelectionColor);
             if (_cachedColors == current && _cached3DEnabled == settings.nodeColor3DEnabled) return false;
             _cachedColors    = current;
             _cached3DEnabled = settings.nodeColor3DEnabled;
@@ -541,8 +550,8 @@ namespace YGDR.Editor.Animation
             return resultTexture;
         }
 
-        /* Tints baseTexture by tint then alpha-composites overlay on top, producing a selection-highlight texture over a tinted node. */
-        static Texture2D CompositeClone(Texture2D baseTexture, Color tint, Texture2D overlay)
+        /* Tints baseTexture by tint then alpha-composites overlay (tinted by selectionColor) on top, producing a selection-highlight texture over a tinted node. */
+        static Texture2D CompositeClone(Texture2D baseTexture, Color tint, Texture2D overlay, Color selectionColor)
         {
             if (baseTexture == null) return null;
             var resultTexture = new Texture2D(baseTexture.width, baseTexture.height, TextureFormat.RGBA32, false);
@@ -555,8 +564,9 @@ namespace YGDR.Editor.Animation
                 var overlayPixels = overlay.GetPixels();
                 for (int i = 0; i < pixels.Length; i++)
                 {
-                    float a = overlayPixels[i].a;
-                    pixels[i] = pixels[i] * (1f - a) + overlayPixels[i] * a;
+                    var tintedOverlay = overlayPixels[i] * selectionColor;
+                    float a = tintedOverlay.a;
+                    pixels[i] = pixels[i] * (1f - a) + tintedOverlay * a;
                 }
             }
 
@@ -663,8 +673,8 @@ namespace YGDR.Editor.Animation
             return resultTexture;
         }
 
-        /* Applies GradientTintClone to baseTexture then alpha-composites overlay on top for the selected/active node state. */
-        static Texture2D GradientCompositeClone(Texture2D baseTexture, Color tint, Texture2D overlay)
+        /* Applies GradientTintClone to baseTexture then alpha-composites overlay (tinted by selectionColor) on top for the selected/active node state. */
+        static Texture2D GradientCompositeClone(Texture2D baseTexture, Color tint, Texture2D overlay, Color selectionColor)
         {
             var gradientTexture = GradientTintClone(baseTexture, tint);
             if (gradientTexture == null) return null;
@@ -675,8 +685,9 @@ namespace YGDR.Editor.Animation
                 var overlayPixels = overlay.GetPixels();
                 for (int i = 0; i < pixels.Length; i++)
                 {
-                    float a  = overlayPixels[i].a;
-                    pixels[i] = pixels[i] * (1f - a) + overlayPixels[i] * a;
+                    var tintedOverlay = overlayPixels[i] * selectionColor;
+                    float a  = tintedOverlay.a;
+                    pixels[i] = pixels[i] * (1f - a) + tintedOverlay * a;
                 }
                 gradientTexture.SetPixels(pixels);
                 gradientTexture.Apply(false, false);
@@ -894,6 +905,14 @@ namespace YGDR.Editor.Animation
 
         static MethodInfo        _getEdgePoints;           // kept as MethodInfo — has ref param
         static FastInvokeHandler _drawArrowInvoker;
+
+        internal static Vector3 GetAnimatedArrowPosition(Vector3 source, Vector3 midpoint, Vector3 destination)
+        {
+            float progress = (float)(EditorApplication.timeSinceStartup * 0.5 % 1.0);
+            return progress < 0.5f
+                ? Vector3.Lerp(midpoint, destination, progress * 2f)
+                : Vector3.Lerp(source, midpoint, (progress - 0.5f) * 2f);
+        }
         static FastInvokeHandler _edgeSizeMultiplierInvoker;
         static FastInvokeHandler _fromSlotInvoker;
         static FastInvokeHandler _toSlotInvoker;
@@ -1016,10 +1035,7 @@ namespace YGDR.Editor.Animation
                      ? PatchDrawArrows.ResolveArrowColor(info, settings) ?? settings.transitionOverlayColor
                      : settings.transitionOverlayColor;
 
-                 float animationProgress = (float)(EditorApplication.timeSinceStartup * 0.5 % 1.0);
-                 var animatedPosition = animationProgress < 0.5f
-                     ? Vector3.Lerp(midPoint, destinationPoint, animationProgress * 2f)
-                     : Vector3.Lerp(sourcePoint, midPoint, (animationProgress - 0.5f) * 2f);
+                 var animatedPosition = GetAnimatedArrowPosition(sourcePoint, midPoint, destinationPoint);
 
                  _drawArrowInvoker ??= MethodInvoker.GetHandler(AccessTools.Method(EdgeGUIType, "DrawArrow"));
                  _drawArrowInvoker?.Invoke(null, arrowColor, cross, direction, animatedPosition, arrowSize, outlineWidth);

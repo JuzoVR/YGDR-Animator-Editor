@@ -89,6 +89,23 @@ namespace YGDR.Editor.Animation
             return _blendTypeLabelStyle;
         }
 
+        static GUIStyle _thresholdLabelStyle;
+        static Color _thresholdLabelColor;
+
+        static GUIStyle GetThresholdLabelStyle(Color color)
+        {
+            if (_thresholdLabelStyle != null && _thresholdLabelColor == color) return _thresholdLabelStyle;
+            _thresholdLabelColor = color;
+            _thresholdLabelStyle = new GUIStyle(EditorStyles.miniLabel)
+            {
+                fontSize  = 10,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleRight,
+                normal    = { textColor = color },
+            };
+            return _thresholdLabelStyle;
+        }
+
         /* Returns a short display string for a blend tree type (e.g. "1D", "2D Simple", "Direct"). */
         static string BlendTypeLabel(BlendTreeType blendType) => blendType switch
         {
@@ -151,6 +168,8 @@ namespace YGDR.Editor.Animation
                     GUI.Label(titleRect, motion.name, GetNameLabelStyle(settings.overlayActiveColor));
                     if (settings.overlayEnabled && motion is BlendTree blendTree)
                         GUI.Label(new Rect(lastRect.x + 2f, 3f, 70f, 11f), BlendTypeLabel(blendTree.blendType), GetBlendTypeLabelStyle(settings.overlayActiveColor));
+                    if (settings.overlayEnabled)
+                        TryDrawThresholdLabel(n, lastRect, settings.overlayActiveColor);
                 }
                 else
                 {
@@ -161,6 +180,20 @@ namespace YGDR.Editor.Animation
             {
                 Debug.LogError($"[YGDR] BlendTree NodeGUI postfix error: {e}");
             }
+        }
+
+        /* Draws the threshold value in the upper-right corner for nodes that are direct children of a 1D blend tree. */
+        static void TryDrawThresholdLabel(object node, Rect lastRect, Color color)
+        {
+            var parentNode = Traverse.Create(node).Property("parent").GetValue();
+            if (parentNode == null) return;
+            var parentBlendTree = Traverse.Create(parentNode).Field("motion").GetValue() as BlendTree;
+            if (parentBlendTree == null || parentBlendTree.blendType != BlendTreeType.Simple1D) return;
+            int childIndex = Traverse.Create(node).Property("childIndex").GetValue<int>();
+            if (childIndex < 0 || childIndex >= parentBlendTree.children.Length) return;
+            float threshold = parentBlendTree.children[childIndex].threshold;
+            var thresholdRect = new Rect(lastRect.xMax - 40f, 3f, 38f, 11f);
+            GUI.Label(thresholdRect, threshold.ToString("0.###"), GetThresholdLabelStyle(color));
         }
 
         /* Draws an inline TextField over the node title for rename input, committing on Enter and cancelling on Escape. */

@@ -15,64 +15,66 @@ namespace YGDR.Editor.Animation
     {
         void DrawStatesTab()
         {
-            DrawStateListHeader();
+            var panelRect = EditorGUILayout.BeginVertical(Styles.SectionPadded);
+            if (Event.current.type == EventType.Repaint && panelRect.height > 0)
+                EditorGUI.DrawRect(panelRect, Styles.PrimaryColor);
 
-            if (_selectedStates.Length > 0)
+            if (_selectedStates.Length == 0)
+                EditorGUILayout.LabelField("Select a state to edit", Styles.EmptyLabel);
+            else
                 DrawStateRows();
 
             EditorGUILayout.Space(4);
             DrawStateAlignButtons();
-            DrawSeparator();
-            EditorGUILayout.Space(4);
+            EditorGUILayout.Space(8);
             DrawStateProperties();
-            EditorGUILayout.Space(4);
+            EditorGUILayout.Space(EditorGUIUtility.singleLineHeight);
+            EditorGUILayout.LabelField("Shared Behaviors", Styles.FooterVersion);
             DrawVRCDriversSection();
-            EditorGUILayout.Space(4);
+            if (_selectedStates.Any(state => GetDriverForState(state) != null)) EditorGUILayout.Space(8);
             DrawVRCPlayAudioSection();
-            EditorGUILayout.Space(4);
+            if (_selectedStates.Any(state => GetAudioForState(state) != null)) EditorGUILayout.Space(8);
             DrawVRCTrackingSection();
+
+            EditorGUILayout.EndVertical();
         }
 
         // ── State list ────────────────────────────────────────────────────────
 
-        void DrawStateListHeader()
+void DrawStateRows()
         {
-            using var _ = new EditorGUILayout.HorizontalScope(Styles.SectionHeader);
+            var rowsRect = EditorGUILayout.BeginVertical();
+            if (Event.current.type == EventType.Repaint && rowsRect.height > 0)
+                EditorGUI.DrawRect(rowsRect, Styles.SecondaryColor);
 
-            if (CursorBtn("✕", Styles.HeaderCloseBtn, GUILayout.Width(20), GUILayout.Height(24)))
-                Selection.objects = Array.Empty<UnityEngine.Object>();
+            GUILayout.Space(4f);
 
-            GUILayout.FlexibleSpace();
-            GUILayout.Label($"Selected {_selectedStates.Length} States", Styles.HeaderLabel, GUILayout.Height(24));
-            GUILayout.FlexibleSpace();
-        }
-
-        void DrawStateRows()
-        {
             float rowHeight = EditorGUIUtility.singleLineHeight;
             const float nameWidth = 140f;
+
             foreach (var state in _selectedStates)
             {
                 using var _ = new EditorGUILayout.HorizontalScope(GUILayout.Height(rowHeight));
 
-                if (CursorBtn("✕", Styles.StateRowXBtn, GUILayout.Width(20), GUILayout.Height(rowHeight)))
-                {
-                    Selection.objects = _selectedStates.Where(x => x != state).Cast<UnityEngine.Object>().ToArray();
-                    return;
-                }
-
                 GUILayout.FlexibleSpace();
-
-                if (CursorBtn("Out", Styles.IconBtn, GUILayout.Width(44), GUILayout.Height(rowHeight)))
-                    SelectOutgoingTransitions(new[] { state });
-
-                GUILayout.Label(TruncateToFit(state.name, Styles.StateRowName, nameWidth), Styles.StateRowName, GUILayout.Width(nameWidth), GUILayout.Height(rowHeight));
 
                 if (CursorBtn("In", Styles.IconBtn, GUILayout.Width(44), GUILayout.Height(rowHeight)))
                     SelectIncomingTransitions(_controller, new[] { state });
 
+                var nameRect = GUILayoutUtility.GetRect(nameWidth, rowHeight, GUILayout.Width(nameWidth), GUILayout.Height(rowHeight));
+                if (Event.current.type == EventType.Repaint)
+                    EditorGUI.DrawRect(nameRect, Styles.SecondaryColor);
+                GUI.Label(nameRect, TruncateToFit(state.name, Styles.StateRowName, nameWidth), Styles.StateRowName);
+
+                if (CursorBtn("Out", Styles.IconBtn, GUILayout.Width(44), GUILayout.Height(rowHeight)))
+                    SelectOutgoingTransitions(new[] { state });
+
                 GUILayout.FlexibleSpace();
             }
+
+            GUILayout.Space(4f);
+
+            EditorGUILayout.EndVertical();
         }
 
         /* Truncates text to fit within maxWidth pixels using style's CalcSize, appending an ellipsis when trimmed. */
@@ -177,6 +179,8 @@ namespace YGDR.Editor.Animation
                 }
             }
 
+            EditorGUILayout.Space(10);
+
             // Motion
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -197,27 +201,27 @@ namespace YGDR.Editor.Animation
                 float newSpeed = EditorGUILayout.FloatField(empty ? 1f : first.speed);
                 if (EditorGUI.EndChangeCheck()) SetStateOnAll(state => state.speed = newSpeed);
                 EditorGUI.showMixedValue = false;
-                GUILayout.FlexibleSpace();
-                EditorGUI.showMixedValue = multi && _selectedStates.Any(x => x.speedParameterActive != first.speedParameterActive);
-                EditorGUI.BeginChangeCheck();
-                bool newSpeedActive = EditorGUILayout.ToggleLeft("Parameter", empty ? false : first.speedParameterActive, GUILayout.Width(90));
-                if (EditorGUI.EndChangeCheck()) SetStateOnAll(state => state.speedParameterActive = newSpeedActive);
-                EditorGUI.showMixedValue = false;
             }
 
             // Multiplier (speed parameter name)
             bool speedParamActive = !empty && first.speedParameterActive;
             using (new EditorGUILayout.HorizontalScope())
-            using (new EditorGUI.DisabledScope(!speedParamActive))
             {
-                EditorGUILayout.LabelField("Multiplier", GUILayout.Width(110));
-                EditorGUI.showMixedValue = multi && _selectedStates.Any(x => x.speedParameter != first.speedParameter);
+                using (new EditorGUI.DisabledScope(!speedParamActive))
+                {
+                    EditorGUILayout.LabelField("Multiplier", GUILayout.Width(110));
+                    EditorGUI.showMixedValue = multi && _selectedStates.Any(x => x.speedParameter != first.speedParameter);
+                    EditorGUI.BeginChangeCheck();
+                    string newSpeedParameter = DrawFloatParamDropdown(empty ? "" : first.speedParameter);
+                    if (EditorGUI.EndChangeCheck()) SetStateOnAll(state => state.speedParameter = newSpeedParameter);
+                    EditorGUI.showMixedValue = false;
+                    GUILayout.FlexibleSpace();
+                }
+                EditorGUI.showMixedValue = multi && _selectedStates.Any(x => x.speedParameterActive != first.speedParameterActive);
                 EditorGUI.BeginChangeCheck();
-                string newSpeedParameter = DrawFloatParamDropdown(empty ? "" : first.speedParameter);
-                if (EditorGUI.EndChangeCheck()) SetStateOnAll(state => state.speedParameter = newSpeedParameter);
+                bool newSpeedActive = EditorGUILayout.ToggleLeft("Parameter", empty ? false : first.speedParameterActive, GUILayout.Width(90));
+                if (EditorGUI.EndChangeCheck()) SetStateOnAll(state => state.speedParameterActive = newSpeedActive);
                 EditorGUI.showMixedValue = false;
-                GUILayout.FlexibleSpace();
-                GUILayout.Label("Parameter", GUILayout.Width(90));
             }
 
             // Motion Time
@@ -241,15 +245,27 @@ namespace YGDR.Editor.Animation
             }
 
             // Mirror
+            bool mirrorParamActive = !empty && first.mirrorParameterActive;
             using (new EditorGUILayout.HorizontalScope())
             {
                 EditorGUILayout.LabelField("Mirror", GUILayout.Width(110));
-                EditorGUI.showMixedValue = multi && _selectedStates.Any(x => x.mirror != first.mirror);
-                EditorGUI.BeginChangeCheck();
-                bool newMirror = EditorGUILayout.Toggle(empty ? false : first.mirror, GUILayout.Width(16));
-                if (EditorGUI.EndChangeCheck()) SetStateOnAll(state => state.mirror = newMirror);
-                EditorGUI.showMixedValue = false;
-                GUILayout.FlexibleSpace();
+                if (mirrorParamActive)
+                {
+                    EditorGUI.showMixedValue = multi && _selectedStates.Any(x => x.mirrorParameter != first.mirrorParameter);
+                    EditorGUI.BeginChangeCheck();
+                    string newMirrorParameter = DrawBoolParamDropdown(empty ? "" : first.mirrorParameter);
+                    if (EditorGUI.EndChangeCheck()) SetStateOnAll(state => state.mirrorParameter = newMirrorParameter);
+                    EditorGUI.showMixedValue = false;
+                }
+                else
+                {
+                    EditorGUI.showMixedValue = multi && _selectedStates.Any(x => x.mirror != first.mirror);
+                    EditorGUI.BeginChangeCheck();
+                    bool newMirror = EditorGUILayout.Toggle(empty ? false : first.mirror, GUILayout.Width(16));
+                    if (EditorGUI.EndChangeCheck()) SetStateOnAll(state => state.mirror = newMirror);
+                    EditorGUI.showMixedValue = false;
+                    GUILayout.FlexibleSpace();
+                }
                 EditorGUI.showMixedValue = multi && _selectedStates.Any(x => x.mirrorParameterActive != first.mirrorParameterActive);
                 EditorGUI.BeginChangeCheck();
                 bool newMirrorActive = EditorGUILayout.ToggleLeft("Parameter", empty ? false : first.mirrorParameterActive, GUILayout.Width(90));
@@ -274,7 +290,18 @@ namespace YGDR.Editor.Animation
                 EditorGUI.showMixedValue = false;
             }
 
-            // Write Defaults | Foot IK
+            // Foot IK
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField("Foot IK", GUILayout.Width(110));
+                EditorGUI.showMixedValue = multi && _selectedStates.Any(x => x.iKOnFeet != first.iKOnFeet);
+                EditorGUI.BeginChangeCheck();
+                bool newFootIK = EditorGUILayout.Toggle(empty ? false : first.iKOnFeet, GUILayout.Width(16));
+                if (EditorGUI.EndChangeCheck()) SetStateOnAll(state => state.iKOnFeet = newFootIK);
+                EditorGUI.showMixedValue = false;
+            }
+
+            // Write Defaults
             using (new EditorGUILayout.HorizontalScope())
             {
                 EditorGUILayout.LabelField("Write Defaults", GUILayout.Width(110));
@@ -282,13 +309,6 @@ namespace YGDR.Editor.Animation
                 EditorGUI.BeginChangeCheck();
                 bool newWriteDefaults = EditorGUILayout.Toggle(empty ? true : first.writeDefaultValues, GUILayout.Width(16));
                 if (EditorGUI.EndChangeCheck()) SetStateOnAll(state => state.writeDefaultValues = newWriteDefaults);
-                EditorGUI.showMixedValue = false;
-                GUILayout.FlexibleSpace();
-                EditorGUILayout.LabelField("Foot IK", GUILayout.Width(55));
-                EditorGUI.showMixedValue = multi && _selectedStates.Any(x => x.iKOnFeet != first.iKOnFeet);
-                EditorGUI.BeginChangeCheck();
-                bool newFootIK = EditorGUILayout.Toggle(empty ? false : first.iKOnFeet, GUILayout.Width(16));
-                if (EditorGUI.EndChangeCheck()) SetStateOnAll(state => state.iKOnFeet = newFootIK);
                 EditorGUI.showMixedValue = false;
             }
         }
@@ -300,9 +320,9 @@ namespace YGDR.Editor.Animation
             bool anyHave = _selectedStates.Any(state => GetDriverForState(state) != null);
             bool allHave = _selectedStates.Length > 0 && _selectedStates.All(state => GetDriverForState(state) != null);
 
-            using (new EditorGUILayout.HorizontalScope(Styles.SectionHeader))
+            using (new EditorGUILayout.HorizontalScope(Styles.BehaviorSectionHeader))
             {
-                GUILayout.Label("Shared VRCParameter Drivers", Styles.HeaderLabel, GUILayout.Height(24));
+                GUILayout.Label("Shared VRCParameter Drivers", Styles.BehaviorSectionLabel, GUILayout.Height(24));
                 GUILayout.FlexibleSpace();
                 bool hasAnyParams = _selectedStates.Any(state => { var driver = GetDriverForState(state); return driver != null && driver.parameters.Count > 0; });
                 if (!hasAnyParams && CursorBtn("Add to All", EditorStyles.miniButton, GUILayout.Width(72), GUILayout.Height(24)))
@@ -319,15 +339,9 @@ namespace YGDR.Editor.Animation
 
             if (!anyHave) return;
 
-            const float pad = 6f;
-            var bodyRect = EditorGUILayout.BeginVertical();
+            var bodyRect = EditorGUILayout.BeginVertical(Styles.CondBody, GUILayout.ExpandWidth(true));
             if (Event.current.type == EventType.Repaint && bodyRect.height > 0)
-                EditorGUI.DrawRect(bodyRect, Styles.CondSectionBg);
-
-            GUILayout.Space(pad);
-            EditorGUILayout.BeginHorizontal();
-            GUILayout.Space(pad);
-            EditorGUILayout.BeginVertical();
+                EditorGUI.DrawRect(bodyRect, Styles.SecondaryColor);
 
             // Debug String + Local Only row
             using (new EditorGUILayout.HorizontalScope())
@@ -364,16 +378,13 @@ namespace YGDR.Editor.Animation
                 foreach (var entry in entries)
                     DrawDriverParamRow(entry);
 
-            float rowHeight = EditorGUIUtility.singleLineHeight;
-            var addRow = EditorGUILayout.GetControlRect(false, rowHeight);
-            if (CursorBtn(new Rect(addRow.xMax - 24f, addRow.y, 24f, rowHeight), "+", Styles.CondActionBtn))
-                AddDriverParam();
+            EditorGUILayout.EndVertical();
 
-            EditorGUILayout.EndVertical();
-            GUILayout.Space(pad);
-            EditorGUILayout.EndHorizontal();
-            GUILayout.Space(pad);
-            EditorGUILayout.EndVertical();
+            GUILayout.Space(-EditorGUIUtility.standardVerticalSpacing);
+            float addBtnSize = EditorGUIUtility.singleLineHeight;
+            var addRow = EditorGUILayout.GetControlRect(false, addBtnSize);
+            if (CursorBtn(new Rect(addRow.xMax - 40f, addRow.y, 24f, addBtnSize), "+", Styles.CondBtn))
+                AddDriverParam();
         }
 
         void DrawLocalOnlyButton()
@@ -520,7 +531,7 @@ namespace YGDR.Editor.Animation
                     ReplaceDriverParam(capturedEntry, CloneParam(capturedEntry.param, value: newValue));
             }
 
-            if (CursorBtn(removeRect, "−", Styles.CondActionBtn))
+            if (CursorBtn(removeRect, "−", Styles.CondBtn))
                 RemoveDriverParam(entry);
         }
 
@@ -655,9 +666,9 @@ namespace YGDR.Editor.Animation
             bool allHave = _selectedStates.Length > 0 && _selectedStates.All(state => GetAudioForState(state) != null);
             bool anyHave = _selectedStates.Any(state => GetAudioForState(state) != null);
 
-            using (new EditorGUILayout.HorizontalScope(Styles.SectionHeader))
+            using (new EditorGUILayout.HorizontalScope(Styles.BehaviorSectionHeader))
             {
-                GUILayout.Label("Shared VRC Play Audio", Styles.HeaderLabel, GUILayout.Height(24));
+                GUILayout.Label("Shared VRC Play Audio", Styles.BehaviorSectionLabel, GUILayout.Height(24));
                 GUILayout.FlexibleSpace();
                 if (!allHave && CursorBtn("Add to All", EditorStyles.miniButton, GUILayout.Width(72), GUILayout.Height(24)))
                     foreach (var state in _selectedStates)
@@ -674,7 +685,7 @@ namespace YGDR.Editor.Animation
             const float pad = 6f;
             var bodyRect = EditorGUILayout.BeginVertical();
             if (Event.current.type == EventType.Repaint && bodyRect.height > 0)
-                EditorGUI.DrawRect(bodyRect, Styles.CondSectionBg);
+                EditorGUI.DrawRect(bodyRect, Styles.SecondaryColor);
 
             GUILayout.Space(pad);
             EditorGUILayout.BeginHorizontal();
@@ -891,7 +902,7 @@ namespace YGDR.Editor.Animation
             // Outer container — single background covers foldout header + list body
             var outerRect = EditorGUILayout.BeginVertical();
             if (Event.current.type == EventType.Repaint && outerRect.height > 0)
-                EditorGUI.DrawRect(outerRect, Styles.CondSectionBg);
+                EditorGUI.DrawRect(outerRect, Styles.SecondaryColor);
 
             // Foldout header + size int field — now inside the background
             var headerRow = EditorGUILayout.GetControlRect(false, rowHeight);
@@ -973,7 +984,7 @@ namespace YGDR.Editor.Animation
                         }
                         EditorGUI.showMixedValue = false;
 
-                        if (GUI.Button(new Rect(rect.xMax - 24f, rect.y + 1f, 24f, rect.height - 2f), "−", Styles.CondActionBtn))
+                        if (GUI.Button(new Rect(rect.xMax - 24f, rect.y + 1f, 24f, rect.height - 2f), "−", Styles.CondBtn))
                             _removeClipIndex = index;
                     };
 
@@ -1027,7 +1038,7 @@ namespace YGDR.Editor.Animation
                 else
                 {
                     var addRow = EditorGUILayout.GetControlRect(false, rowHeight);
-                    if (CursorBtn(new Rect(addRow.xMax - 24f, addRow.y, 24f, rowHeight), "+", Styles.CondActionBtn))
+                    if (CursorBtn(new Rect(addRow.xMax - 24f, addRow.y, 24f, rowHeight), "+", Styles.CondBtn))
                     {
                         foreach (var state in _selectedStates)
                         {
@@ -1070,9 +1081,9 @@ namespace YGDR.Editor.Animation
             bool allHave = _selectedStates.Length > 0 && _selectedStates.All(state => GetTrackingForState(state) != null);
             bool anyHave = _selectedStates.Any(state => GetTrackingForState(state) != null);
 
-            using (new EditorGUILayout.HorizontalScope(Styles.SectionHeader))
+            using (new EditorGUILayout.HorizontalScope(Styles.BehaviorSectionHeader))
             {
-                GUILayout.Label("Shared VRC Tracking Control", Styles.HeaderLabel, GUILayout.Height(24));
+                GUILayout.Label("Shared VRC Tracking Control", Styles.BehaviorSectionLabel, GUILayout.Height(24));
                 GUILayout.FlexibleSpace();
                 if (!allHave && CursorBtn("Add to All", EditorStyles.miniButton, GUILayout.Width(72), GUILayout.Height(24)))
                     foreach (var state in _selectedStates)
@@ -1089,7 +1100,7 @@ namespace YGDR.Editor.Animation
             const float pad = 6f;
             var bodyRect = EditorGUILayout.BeginVertical();
             if (Event.current.type == EventType.Repaint && bodyRect.height > 0)
-                EditorGUI.DrawRect(bodyRect, Styles.CondSectionBg);
+                EditorGUI.DrawRect(bodyRect, Styles.SecondaryColor);
 
             GUILayout.Space(pad);
             EditorGUILayout.BeginHorizontal();
@@ -1322,7 +1333,7 @@ namespace YGDR.Editor.Animation
         }
 
         /* Draws an EditorGUILayout.Popup listing all Float parameters in the active controller and returns the selected parameter name. */
-        string DrawFloatParamDropdown(string current)
+        string DrawFloatParamDropdown(string current, params GUILayoutOption[] options)
         {
             string[] floatParameterNames = _controller != null
                 ? _controller.parameters
@@ -1333,13 +1344,33 @@ namespace YGDR.Editor.Animation
 
             if (floatParameterNames.Length == 0)
             {
-                GUILayout.Label(string.IsNullOrEmpty(current) ? "—" : current, EditorStyles.miniLabel);
+                GUILayout.Label(string.IsNullOrEmpty(current) ? "—" : current, EditorStyles.miniLabel, options);
                 return current;
             }
 
             int currentIndex = Mathf.Max(0, Array.IndexOf(floatParameterNames, current));
-            int selectedIndex = EditorGUILayout.Popup(currentIndex, floatParameterNames);
+            int selectedIndex = EditorGUILayout.Popup(currentIndex, floatParameterNames, options);
             return floatParameterNames[selectedIndex];
+        }
+
+        string DrawBoolParamDropdown(string current, params GUILayoutOption[] options)
+        {
+            string[] boolParameterNames = _controller != null
+                ? _controller.parameters
+                    .Where(x => x.type == AnimatorControllerParameterType.Bool)
+                    .Select(x => x.name)
+                    .ToArray()
+                : Array.Empty<string>();
+
+            if (boolParameterNames.Length == 0)
+            {
+                GUILayout.Label(string.IsNullOrEmpty(current) ? "—" : current, EditorStyles.miniLabel, options);
+                return current;
+            }
+
+            int currentIndex = Mathf.Max(0, Array.IndexOf(boolParameterNames, current));
+            int selectedIndex = EditorGUILayout.Popup(currentIndex, boolParameterNames, options);
+            return boolParameterNames[selectedIndex];
         }
 
         /* Sets Selection.objects to all outgoing transitions from every state in states. */

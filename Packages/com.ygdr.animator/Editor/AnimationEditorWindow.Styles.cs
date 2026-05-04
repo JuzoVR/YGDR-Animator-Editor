@@ -6,22 +6,36 @@ namespace YGDR.Editor.Animation
 {
     internal partial class AnimationEditorWindow
     {
-        static class Styles
+        internal static class Styles
         {
-            internal static readonly Color PillBg = new(0.25f, 0.25f, 0.25f, 1f);
-            internal static readonly Color CondSectionBg = new(0.28f, 0.28f, 0.28f, 1f);
-            internal static readonly Color SectionHeaderBg = new(0.18f, 0.18f, 0.18f, 1f);
+            // ── Central palette ───────────────────────────────────────────────
+            internal static Color PrimaryColor    = new(0.25f, 0.25f, 0.25f, 1f);
+            internal static Color SecondaryColor  = new(0.30f, 0.30f, 0.30f, 1f);
+            internal static Color AccentColor     = new(0.20f, 0.20f, 0.20f, 1f);
+            internal static Color SectionHeaderBg => new Color(AccentColor.r * 0.8f, AccentColor.g *0.8f, AccentColor.b * 0.8f, 1f);
+            internal static Color RowAltColor => new Color(SecondaryColor.r * 0.80f, SecondaryColor.g * 0.80f, SecondaryColor.b * 0.80f, 1f);
 
-            internal static readonly GUIStyle CondTrue = new(EditorStyles.miniLabel)
+            internal static void ApplyPalette(Color primaryColor, Color secondaryColor, Color accentColor)
             {
-                alignment = TextAnchor.MiddleCenter,
-                normal = { textColor = new Color(0.2f, 0.8f, 0.2f) }
-            };
-            internal static readonly GUIStyle CondFalse = new(EditorStyles.miniLabel)
+                PrimaryColor   = primaryColor;
+                SecondaryColor = secondaryColor;
+                AccentColor    = accentColor;
+                InvalidatePaletteStyles();
+            }
+
+            internal static void InvalidatePaletteStyles()
             {
-                alignment = TextAnchor.MiddleCenter,
-                normal = { textColor = new Color(0.8f, 0.2f, 0.2f) }
-            };
+                s_accentTex                = null;
+                s_accentHoverTex           = null;
+                s_behaviorSectionHeader    = null;
+                s_condModeBtn              = null;
+                s_iconBtn                  = null;
+                s_iconBtnActive            = null;
+                s_condSwitchBtn            = null;
+                s_condBtn                  = null;
+                s_controllerSubTabBtn      = null;
+                s_controllerSubTabBtnActive = null;
+            }
 
             static GUIStyle s_boolBtnTrue;
             internal static GUIStyle BoolBtnTrue
@@ -73,15 +87,44 @@ namespace YGDR.Editor.Animation
                 alignment = TextAnchor.MiddleCenter,
                 fontStyle = FontStyle.Bold
             };
+            internal static readonly GUIStyle BreadcrumbParent = new(EditorStyles.label)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                normal    = { textColor = new Color(0.53f, 0.53f, 0.53f) }
+            };
+            internal static readonly GUIStyle BreadcrumbLeaf = new(EditorStyles.label)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontStyle = FontStyle.Bold,
+                normal    = { textColor = Color.white }
+            };
             internal static readonly GUIStyle SectionHeader = new(EditorStyles.toolbar)
             {
                 fixedHeight = 24
             };
+
+            static GUIStyle s_behaviorSectionHeader;
+            internal static GUIStyle BehaviorSectionHeader
+            {
+                get
+                {
+                    if (s_behaviorSectionHeader != null) return s_behaviorSectionHeader;
+                    var bgTex = new Texture2D(1, 1) { hideFlags = HideFlags.HideAndDontSave };
+                    bgTex.SetPixel(0, 0, AccentColor);
+                    bgTex.Apply();
+                    s_behaviorSectionHeader = new GUIStyle(GUIStyle.none)
+                    {
+                        fixedHeight = 24,
+                        normal = { background = bgTex }
+                    };
+                    return s_behaviorSectionHeader;
+                }
+            }
             internal static readonly GUIStyle HeaderLabel = new(GUIStyle.none)
             {
                 fontSize  = 11,
                 fontStyle = FontStyle.Bold,
-                alignment = TextAnchor.MiddleLeft,
+                alignment = TextAnchor.MiddleCenter,
                 normal    = { textColor = EditorStyles.miniLabel.normal.textColor }
             };
             internal static readonly GUIStyle TabSectionLabel = new(GUIStyle.none)
@@ -92,14 +135,29 @@ namespace YGDR.Editor.Animation
                 padding   = new RectOffset(8, 0, 0, 0),
                 normal    = { textColor = Color.white }
             };
-            internal static readonly GUIStyle CondHeader = new(EditorStyles.toolbar)
+            static Texture2D s_accentTex;
+            static Texture2D AccentTex
             {
-                fixedHeight = 22
-            };
-            internal static readonly GUIStyle CondDot = new(EditorStyles.label)
+                get
+                {
+                    if (s_accentTex != null) return s_accentTex;
+                    s_accentTex = new Texture2D(1, 1) { hideFlags = HideFlags.HideAndDontSave };
+                    s_accentTex.SetPixel(0, 0, AccentColor); s_accentTex.Apply();
+                    return s_accentTex;
+                }
+            }
+
+            static Texture2D s_accentHoverTex;
+            static Texture2D AccentHoverTex
             {
-                normal = { textColor = new Color(1f, 0.45f, 0.1f) }
-            };
+                get
+                {
+                    if (s_accentHoverTex != null) return s_accentHoverTex;
+                    s_accentHoverTex = new Texture2D(1, 1) { hideFlags = HideFlags.HideAndDontSave };
+                    s_accentHoverTex.SetPixel(0, 0, new Color(AccentColor.r + 0.1f, AccentColor.g + 0.1f, AccentColor.b + 0.1f, 1f)); s_accentHoverTex.Apply();
+                    return s_accentHoverTex;
+                }
+            }
 
             static GUIStyle s_condModeBtn;
             internal static GUIStyle CondModeBtn
@@ -107,32 +165,74 @@ namespace YGDR.Editor.Animation
                 get
                 {
                     if (s_condModeBtn != null) return s_condModeBtn;
-                    var hoverTex = new Texture2D(1, 1) { hideFlags = HideFlags.HideAndDontSave };
-                    hoverTex.SetPixel(0, 0, new Color(1f, 1f, 1f, 0.08f));
-                    hoverTex.Apply();
                     s_condModeBtn = new GUIStyle(GUIStyle.none)
                     {
                         alignment = TextAnchor.MiddleLeft,
                         fontSize = 11,
                         padding = new RectOffset(6, 0, 0, 0),
-                        normal = { textColor = EditorStyles.miniLabel.normal.textColor },
-                        hover  = { background = hoverTex, textColor = EditorStyles.miniLabel.normal.textColor },
-                        active = { background = hoverTex, textColor = EditorStyles.miniLabel.normal.textColor }
+                        normal = { background = AccentTex,      textColor = EditorStyles.miniLabel.normal.textColor },
+                        hover  = { background = AccentHoverTex, textColor = EditorStyles.miniLabel.normal.textColor },
+                        active = { background = AccentHoverTex, textColor = EditorStyles.miniLabel.normal.textColor }
                     };
                     return s_condModeBtn;
                 }
             }
 
-            internal static readonly GUIStyle IconBtn = new(EditorStyles.toolbarButton)
+            static GUIStyle s_iconBtn;
+            internal static GUIStyle IconBtn
             {
-                padding = new RectOffset(2, 2, 2, 2)
-            };
-            internal static readonly GUIStyle CondSwitchBtn = new(EditorStyles.toolbarButton)
+                get
+                {
+                    if (s_iconBtn != null) return s_iconBtn;
+                    s_iconBtn = new GUIStyle(GUIStyle.none)
+                    {
+                        alignment = TextAnchor.MiddleCenter,
+                        padding   = new RectOffset(2, 2, 2, 2),
+                        normal    = { background = AccentTex,      textColor = EditorStyles.miniLabel.normal.textColor },
+                        hover     = { background = AccentHoverTex, textColor = EditorStyles.miniLabel.normal.textColor },
+                        active    = { background = AccentHoverTex, textColor = EditorStyles.miniLabel.normal.textColor }
+                    };
+                    return s_iconBtn;
+                }
+            }
+
+            static GUIStyle s_iconBtnActive;
+            internal static GUIStyle IconBtnActive
             {
-                padding = new RectOffset(2, 2, 2, 2),
-                fontSize = 16
-            };
-            internal static readonly GUIStyle HeaderCloseBtn = new(GUIStyle.none)
+                get
+                {
+                    if (s_iconBtnActive != null) return s_iconBtnActive;
+                    s_iconBtnActive = new GUIStyle(GUIStyle.none)
+                    {
+                        alignment = TextAnchor.MiddleCenter,
+                        padding   = new RectOffset(2, 2, 2, 2),
+                        normal    = { background = AccentHoverTex, textColor = EditorStyles.miniLabel.normal.textColor },
+                        hover     = { background = AccentHoverTex, textColor = EditorStyles.miniLabel.normal.textColor },
+                        active    = { background = AccentHoverTex, textColor = EditorStyles.miniLabel.normal.textColor }
+                    };
+                    return s_iconBtnActive;
+                }
+            }
+
+            static GUIStyle s_condSwitchBtn;
+            internal static GUIStyle CondSwitchBtn
+            {
+                get
+                {
+                    if (s_condSwitchBtn != null) return s_condSwitchBtn;
+                    s_condSwitchBtn = new GUIStyle(GUIStyle.none)
+                    {
+                        alignment = TextAnchor.MiddleCenter,
+                        padding   = new RectOffset(2, 2, 2, 2),
+                        fontSize  = 16,
+                        normal    = { background = AccentTex,      textColor = EditorStyles.miniLabel.normal.textColor },
+                        hover     = { background = AccentHoverTex, textColor = EditorStyles.miniLabel.normal.textColor },
+                        active    = { background = AccentHoverTex, textColor = EditorStyles.miniLabel.normal.textColor }
+                    };
+                    return s_condSwitchBtn;
+                }
+            }
+            internal static readonly GUIStyle CloseBtn = new(GUIStyle.none)
             {
                 alignment = TextAnchor.MiddleCenter,
                 fontSize  = 10,
@@ -141,19 +241,19 @@ namespace YGDR.Editor.Animation
                 hover     = { textColor = Color.white }
             };
 
-            static GUIStyle s_condActionBtn;
-            internal static GUIStyle CondActionBtn
+            static GUIStyle s_condBtn;
+            internal static GUIStyle CondBtn
             {
                 get
                 {
-                    if (s_condActionBtn != null) return s_condActionBtn;
+                    if (s_condBtn != null) return s_condBtn;
                     var normalTex = new Texture2D(1, 1) { hideFlags = HideFlags.HideAndDontSave };
-                    normalTex.SetPixel(0, 0, CondSectionBg);
+                    normalTex.SetPixel(0, 0, SecondaryColor);
                     normalTex.Apply();
                     var hoverTex = new Texture2D(1, 1) { hideFlags = HideFlags.HideAndDontSave };
                     hoverTex.SetPixel(0, 0, new Color(0.33f, 0.33f, 0.33f, 1f));
                     hoverTex.Apply();
-                    s_condActionBtn = new GUIStyle(GUIStyle.none)
+                    s_condBtn = new GUIStyle(GUIStyle.none)
                     {
                         alignment = TextAnchor.MiddleCenter,
                         fontStyle = FontStyle.Bold,
@@ -164,14 +264,36 @@ namespace YGDR.Editor.Animation
                         hover     = { background = hoverTex,  textColor = EditorStyles.miniLabel.normal.textColor },
                         active    = { background = hoverTex,  textColor = Color.white }
                     };
-                    return s_condActionBtn;
+                    return s_condBtn;
                 }
             }
+            internal static readonly GUIStyle BehaviorSectionLabel = new(GUIStyle.none)
+            {
+                fontSize  = 11,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleLeft,
+                padding   = new RectOffset(8, 0, 0, 0),
+                normal    = { textColor = EditorStyles.miniLabel.normal.textColor }
+            };
+            internal static readonly GUIStyle SectionPadded = new(GUIStyle.none)
+            {
+                padding = new RectOffset(12, 12, 12, 12)
+            };
+            internal static readonly GUIStyle CondBody = new(GUIStyle.none)
+            {
+                padding = new RectOffset(6, 6, 6, 6)
+            };
+            internal static readonly GUIStyle FindUsesHeader = new(TabSectionLabel)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                richText  = true
+            };
             internal static readonly GUIStyle EmptyLabel = new(EditorStyles.centeredGreyMiniLabel)
             {
-                fontSize = 11,
+                fontSize   = 11,
                 fixedHeight = 30,
-                alignment = TextAnchor.MiddleCenter
+                alignment  = TextAnchor.MiddleCenter,
+                padding    = new RectOffset(0, 0, 0, 8)
             };
             internal static readonly GUIStyle SmallLabel = new(EditorStyles.label)
             {
@@ -182,23 +304,22 @@ namespace YGDR.Editor.Animation
             {
                 alignment = TextAnchor.MiddleCenter
             };
-            internal static readonly GUIStyle StateRowXBtn = new(GUIStyle.none)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontSize  = 10,
-                normal    = { textColor = new Color(0.7f, 0.7f, 0.7f) },
-                hover     = { textColor = Color.white }
-            };
-            internal static readonly GUIStyle PillLabel = new(EditorStyles.miniLabel)
+            internal static readonly GUIStyle TransitionTagLabel = new(EditorStyles.miniLabel)
             {
                 alignment = TextAnchor.MiddleLeft,
                 clipping = TextClipping.Clip
             };
-            internal static readonly GUIStyle PillBtn = new(EditorStyles.miniLabel)
+            internal static readonly GUIStyle TransitionTagBtn = new(EditorStyles.miniLabel)
             {
                 alignment = TextAnchor.MiddleCenter,
                 fontSize = 10,
                 normal = { textColor = new Color(0.75f, 0.75f, 0.75f) }
+            };
+            internal static readonly GUIStyle SectionHeaderCount = new(EditorStyles.miniLabel)
+            {
+                alignment = TextAnchor.MiddleRight,
+                padding   = new RectOffset(0, 8, 0, 0),
+                normal    = { textColor = new Color(0.5f, 0.5f, 0.5f) }
             };
             internal static readonly GUIStyle FooterLabel = new(EditorStyles.miniLabel)
             {
@@ -212,6 +333,50 @@ namespace YGDR.Editor.Animation
                 padding   = new RectOffset(6, 0, 0, 0),
                 normal    = { textColor = new Color(0.5f, 0.5f, 0.5f) }
             };
+            internal static readonly GUIStyle CondDuplicateLabel = new(EditorStyles.miniLabel)
+            {
+                alignment = TextAnchor.MiddleRight,
+                padding   = new RectOffset(0, 20, 0, 0),
+                normal    = { textColor = new Color(0.86f, 0.15f, 0.15f) }
+            };
+            internal static readonly GUIStyle SmallLabelCenter = new(EditorStyles.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize  = 11
+            };
+            internal static readonly GUIStyle SubAssetListLabel = new(EditorStyles.label)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontSize  = 11,
+                richText  = true,
+                padding   = new RectOffset(8, 2, 0, 0)
+            };
+            internal static readonly GUIStyle SubAssetSearchHint = new(EditorStyles.centeredGreyMiniLabel)
+            {
+                alignment = TextAnchor.MiddleLeft
+            };
+
+            static GUIStyle s_controllerSubTabBtn;
+            internal static GUIStyle ControllerSubTabBtn
+            {
+                get
+                {
+                    if (s_controllerSubTabBtn != null) return s_controllerSubTabBtn;
+                    s_controllerSubTabBtn = new GUIStyle(IconBtn) { fontSize = 10 };
+                    return s_controllerSubTabBtn;
+                }
+            }
+
+            static GUIStyle s_controllerSubTabBtnActive;
+            internal static GUIStyle ControllerSubTabBtnActive
+            {
+                get
+                {
+                    if (s_controllerSubTabBtnActive != null) return s_controllerSubTabBtnActive;
+                    s_controllerSubTabBtnActive = new GUIStyle(IconBtnActive) { fontSize = 10 };
+                    return s_controllerSubTabBtnActive;
+                }
+            }
         }
     }
 }

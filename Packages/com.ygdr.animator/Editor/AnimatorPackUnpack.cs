@@ -140,7 +140,6 @@ namespace YGDR.Editor.Animation
         {
             if (controller != null) EditorUtility.SetDirty(controller);
             EditorUtility.SetDirty(stateMachine);
-            AssetDatabase.SaveAssets();
         }
     }
 }

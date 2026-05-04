@@ -25,13 +25,23 @@ namespace YGDR.Editor.Animation
 
             Undo.RegisterCompleteObjectUndo(undoTargets.ToArray(), "Delete All Transitions in Layer");
 
+            var anyStateTransitions = stateMachine.anyStateTransitions;
+            var entryTransitions = stateMachine.entryTransitions;
+            var stateTransitionPairs = stateMachine.states
+                .Select(childState => (state: childState.state, transitions: childState.state.transitions))
+                .ToArray();
+
             stateMachine.anyStateTransitions = new AnimatorStateTransition[0];
             stateMachine.entryTransitions = new AnimatorTransition[0];
-            foreach (var childState in stateMachine.states)
-                childState.state.transitions = new AnimatorStateTransition[0];
+            foreach (var (state, _) in stateTransitionPairs)
+                state.transitions = new AnimatorStateTransition[0];
+
+            foreach (var transition in anyStateTransitions) Undo.DestroyObjectImmediate(transition);
+            foreach (var transition in entryTransitions) Undo.DestroyObjectImmediate(transition);
+            foreach (var (_, transitions) in stateTransitionPairs)
+                foreach (var transition in transitions) Undo.DestroyObjectImmediate(transition);
 
             EditorUtility.SetDirty(stateMachine);
-            if (controller != null) AssetDatabase.SaveAssets();
         }
 
         /* Creates a reversed copy of each selected transition with all conditions negated.
@@ -81,7 +91,6 @@ namespace YGDR.Editor.Animation
             }
 
             EditorUtility.SetDirty(activeSM);
-            AssetDatabase.SaveAssets();
         }
 
         /* Adds an empty transition from every source state to every destination state (full cross-product). */
@@ -98,7 +107,6 @@ namespace YGDR.Editor.Animation
 
             foreach (var sourceState in sourceStates) EditorUtility.SetDirty(sourceState);
             EditorUtility.SetDirty(activeSM);
-            AssetDatabase.SaveAssets();
         }
 
         /* For each selected transition, adds a copy pointing to each new destination state with all settings preserved.
@@ -128,7 +136,6 @@ namespace YGDR.Editor.Animation
                 }
 
             EditorUtility.SetDirty(activeSM);
-            AssetDatabase.SaveAssets();
         }
 
         /* Duplicates each selected transition onto every new source state, keeping the original destinations and all settings.
@@ -156,7 +163,6 @@ namespace YGDR.Editor.Animation
                 }
 
             EditorUtility.SetDirty(activeSM);
-            AssetDatabase.SaveAssets();
         }
 
         /* Copies all conditions, timing, interruption, and flag settings from sourceTransition to destinationTransition. */

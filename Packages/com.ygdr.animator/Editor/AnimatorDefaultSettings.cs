@@ -85,6 +85,7 @@ namespace YGDR.Editor.Animation
         [SerializeField] internal Color entryNodeColor        = new(0.20f, 0.55f, 0.20f, 1f);
         [SerializeField] internal Color exitNodeColor         = new(0.55f, 0.15f, 0.15f, 1f);
         [SerializeField] internal Color anyStateNodeColor     = new(0.15f, 0.40f, 0.50f, 1f);
+        [SerializeField] internal Color nodeSelectionColor   = new(1f, 1f, 1f, 1f);
 
         internal void ResetNodeColors()
         {
@@ -94,6 +95,23 @@ namespace YGDR.Editor.Animation
             entryNodeColor       = new(0.20f, 0.55f, 0.20f, 1f);
             exitNodeColor        = new(0.55f, 0.15f, 0.15f, 1f);
             anyStateNodeColor    = new(0.15f, 0.40f, 0.50f, 1f);
+            nodeSelectionColor   = new(1f, 1f, 1f, 1f);
+        }
+
+        // Editor palette
+        [SerializeField] internal Color paletteColorPrimary   = new(0.25f, 0.25f, 0.25f, 1f);
+        [SerializeField] internal Color paletteColorSecondary = new(0.30f, 0.30f, 0.30f, 1f);
+        [SerializeField] internal Color paletteColorAccent    = new(0.20f, 0.20f, 0.20f, 1f);
+
+        internal static Color DefaultPrimary   => EditorGUIUtility.isProSkin ? new(0.25f, 0.25f, 0.25f, 1f) : new(0.82f, 0.82f, 0.82f, 1f);
+        internal static Color DefaultSecondary => EditorGUIUtility.isProSkin ? new(0.30f, 0.30f, 0.30f, 1f) : new(0.76f, 0.76f, 0.76f, 1f);
+        internal static Color DefaultAccent    => EditorGUIUtility.isProSkin ? new(0.20f, 0.20f, 0.20f, 1f) : new(0.70f, 0.70f, 0.70f, 1f);
+
+        internal void ResetPalette()
+        {
+            paletteColorPrimary   = DefaultPrimary;
+            paletteColorSecondary = DefaultSecondary;
+            paletteColorAccent    = DefaultAccent;
         }
 
         // Transition defaults
