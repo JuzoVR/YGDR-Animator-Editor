@@ -26,6 +26,8 @@ namespace YGDR.Editor.Animation
             AccessTools.TypeByName("UnityEditor.Graphs.AnimationStateMachine.Graph");
         internal static readonly Type GraphGUIType =
             AccessTools.TypeByName("UnityEditor.Graphs.AnimationStateMachine.GraphGUI");
+        internal static readonly Type BlendTreeGraphGUIType =
+            AccessTools.TypeByName("UnityEditor.Graphs.AnimationBlendTree.GraphGUI");
         internal static readonly Type AnimatorControllerToolType =
             AccessTools.TypeByName("UnityEditor.Graphs.AnimatorControllerTool");
 

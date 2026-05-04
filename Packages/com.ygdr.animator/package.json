@@ -1,7 +1,7 @@
 {
   "name": "com.ygdr.animator",
   "displayName": "YGDR Animator Editor",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Unity Animator Editor extended QOL features",
   "gitDependencies": {},
   "vpmDependencies": {

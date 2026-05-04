@@ -7,6 +7,8 @@ using HarmonyLib;
 using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
+using VRC.SDK3.Avatars.Components;
+using VRC.SDK3.Avatars.ScriptableObjects;
 
 
 namespace YGDR.Editor.Animation
@@ -46,6 +48,22 @@ namespace YGDR.Editor.Animation
             if (windows.Length == 0) return null;
             return AnimatorControllerGetter?.Invoke(windows[0], null)
                 as UnityEditor.Animations.AnimatorController;
+        }
+
+        internal static void InsertParameterAtIndex(UnityEditor.Animations.AnimatorController controller,
+            int index, string paramName, UnityEngine.AnimatorControllerParameterType type)
+        {
+            Undo.RegisterCompleteObjectUndo(controller, $"Add {type} Parameter");
+            controller.AddParameter(paramName, type);
+
+            var serializedObject = new SerializedObject(controller);
+            serializedObject.Update();
+            var parametersProperty = serializedObject.FindProperty("m_AnimatorParameters");
+            parametersProperty.MoveArrayElement(parametersProperty.arraySize - 1, index);
+            serializedObject.ApplyModifiedPropertiesWithoutUndo();
+
+            EditorUtility.SetDirty(controller);
+            AssetDatabase.SaveAssets();
         }
     }
 
@@ -147,7 +165,7 @@ namespace YGDR.Editor.Animation
         }
     }
 
-    // Parameter row: type label overlay + right-click convert menu
+    // Parameter row: type label overlay + VRC sync icon + right-click convert menu
     [HarmonyPatch]
     [HarmonyPriority(Priority.Low)]
     internal static class PatchParameterRow
@@ -156,8 +174,24 @@ namespace YGDR.Editor.Animation
         static GUIStyle TypeStyle => _typeStyle ??= new GUIStyle(EditorStyles.miniLabel)
         {
             alignment = TextAnchor.MiddleRight,
-            fontStyle = FontStyle.Bold
+            fontStyle = FontStyle.Bold,
+            richText = true
         };
+
+        static GUIContent _syncedIcon;
+        static GUIContent _unsyncedIcon;
+        static GUIContent SyncedIcon   => _syncedIcon   ??= EditorGUIUtility.IconContent("soloon");
+        static GUIContent UnsyncedIcon => _unsyncedIcon ??= EditorGUIUtility.IconContent("solonormal");
+
+        static bool VrcTypesMatch(UnityEngine.AnimatorControllerParameterType animType, VRCExpressionParameters.ValueType vrcType) =>
+            animType switch
+            {
+                UnityEngine.AnimatorControllerParameterType.Float   => vrcType == VRCExpressionParameters.ValueType.Float,
+                UnityEngine.AnimatorControllerParameterType.Int     => vrcType == VRCExpressionParameters.ValueType.Int,
+                UnityEngine.AnimatorControllerParameterType.Bool    => vrcType == VRCExpressionParameters.ValueType.Bool,
+                UnityEngine.AnimatorControllerParameterType.Trigger => vrcType == VRCExpressionParameters.ValueType.Bool,
+                _ => true
+            };
 
         [HarmonyTargetMethod]
         static MethodBase TargetMethod() =>
@@ -172,10 +206,15 @@ namespace YGDR.Editor.Animation
                 if (parameter == null) return;
 
                 var settings = AnimatorDefaultSettings.Load();
+                bool hasSyncData = VRCSyncCache.TryGetSync(parameter.name, out bool isSynced);
+
+                const float labelWidth = 66f;
+                const float iconSize = 14f;
+                const float iconPadding = 2f;
 
                 if (settings.showParamTypeLabels)
                 {
-                    TypeStyle.normal.textColor = parameter.type switch
+                    var resolvedColor = parameter.type switch
                     {
                         UnityEngine.AnimatorControllerParameterType.Float   => settings.paramColorFloat,
                         UnityEngine.AnimatorControllerParameterType.Int     => settings.paramColorInt,
@@ -183,12 +222,41 @@ namespace YGDR.Editor.Animation
                         UnityEngine.AnimatorControllerParameterType.Trigger => settings.paramColorTrigger,
                         _ => Color.white
                     };
+                    bool hasMismatch = VRCSyncCache.TryGetVrcValueType(parameter.name, out var vrcValueType) && !VrcTypesMatch(parameter.type, vrcValueType);
+                    if (hasMismatch)
+                        resolvedColor = new Color(0.5f, 0.5f, 0.5f);
+                    TypeStyle.normal.textColor = resolvedColor;
 
-                    const float labelWidth = 66f;
-                    var labelRect = new Rect(rect.xMax - labelWidth * 2f, rect.y, labelWidth - 6f, rect.height);
-                    GUI.Label(labelRect, parameter.type.ToString(), TypeStyle);
+                    float adjustedLabelWidth = hasSyncData ? labelWidth - iconSize - iconPadding - 6f : labelWidth - 6f;
+                    var labelRect = new Rect(rect.xMax - labelWidth * 2f, rect.y, adjustedLabelWidth, rect.height);
+                    if (hasMismatch)
+                    {
+                        var vrcColor = vrcValueType switch
+                        {
+                            VRCExpressionParameters.ValueType.Float => settings.paramColorFloat,
+                            VRCExpressionParameters.ValueType.Int   => settings.paramColorInt,
+                            _                                        => settings.paramColorBool,
+                        };
+                        const float mismatchExtraWidth = 12f;
+                        var mismatchLabelRect = new Rect(labelRect.x - mismatchExtraWidth, labelRect.y, adjustedLabelWidth + mismatchExtraWidth, labelRect.height);
+                        GUI.Label(mismatchLabelRect, $"<color=#808080>{parameter.type}</color>/<color=#{ColorUtility.ToHtmlStringRGB(vrcColor)}>{vrcValueType}</color>", TypeStyle);
+                    }
+                    else
+                    {
+                        GUI.Label(labelRect, parameter.type.ToString(), TypeStyle);
+                    }
+
+                    if (hasSyncData)
+                    {
+                        var iconRect = new Rect(labelRect.xMax + iconPadding, rect.y + (rect.height - iconSize) * 0.5f, iconSize, iconSize);
+                        GUI.Label(iconRect, isSynced ? SyncedIcon : UnsyncedIcon);
+                    }
                 }
-
+                else if (hasSyncData)
+                {
+                    var iconRect = new Rect(rect.xMax - labelWidth * 2f, rect.y + (rect.height - iconSize) * 0.5f, iconSize, iconSize);
+                    GUI.Label(iconRect, isSynced ? SyncedIcon : UnsyncedIcon);
+                }
             }
             catch (Exception e)
             {
@@ -202,6 +270,40 @@ namespace YGDR.Editor.Animation
     [HarmonyPriority(Priority.Low)]
     internal static class PatchParameterContextMenu
     {
+        static readonly (string category, string name, UnityEngine.AnimatorControllerParameterType type)[] VrcParameters =
+        {
+            ("Local",    "IsLocal",              UnityEngine.AnimatorControllerParameterType.Bool),
+            ("Local",    "PreviewMode",          UnityEngine.AnimatorControllerParameterType.Int),
+            ("Speech",   "Viseme",               UnityEngine.AnimatorControllerParameterType.Int),
+            ("Speech",   "Voice",                UnityEngine.AnimatorControllerParameterType.Float),
+            ("IK",       "GestureLeft",          UnityEngine.AnimatorControllerParameterType.Int),
+            ("IK",       "GestureRight",         UnityEngine.AnimatorControllerParameterType.Int),
+            ("IK",       "AngularY",             UnityEngine.AnimatorControllerParameterType.Float),
+            ("IK",       "VelocityX",            UnityEngine.AnimatorControllerParameterType.Float),
+            ("IK",       "VelocityY",            UnityEngine.AnimatorControllerParameterType.Float),
+            ("IK",       "VelocityZ",            UnityEngine.AnimatorControllerParameterType.Float),
+            ("IK",       "VelocityMagnitude",    UnityEngine.AnimatorControllerParameterType.Float),
+            ("IK",       "Upright",              UnityEngine.AnimatorControllerParameterType.Float),
+            ("IK",       "Grounded",             UnityEngine.AnimatorControllerParameterType.Bool),
+            ("IK",       "Seated",               UnityEngine.AnimatorControllerParameterType.Bool),
+            ("IK",       "AFK",                  UnityEngine.AnimatorControllerParameterType.Bool),
+            ("IK",       "VRMode",               UnityEngine.AnimatorControllerParameterType.Int),
+            ("IK",       "InStation",            UnityEngine.AnimatorControllerParameterType.Bool),
+            ("IK",       "AvatarVersion",        UnityEngine.AnimatorControllerParameterType.Int),
+            ("Playable", "GestureLeftWeight",    UnityEngine.AnimatorControllerParameterType.Float),
+            ("Playable", "GestureRightWeight",   UnityEngine.AnimatorControllerParameterType.Float),
+            ("Playable", "TrackingType",         UnityEngine.AnimatorControllerParameterType.Int),
+            ("Playable", "MuteSelf",             UnityEngine.AnimatorControllerParameterType.Bool),
+            ("Playable", "Earmuffs",             UnityEngine.AnimatorControllerParameterType.Bool),
+            ("Playable", "ScaleModified",        UnityEngine.AnimatorControllerParameterType.Bool),
+            ("Playable", "ScaleFactor",          UnityEngine.AnimatorControllerParameterType.Float),
+            ("Playable", "ScaleFactorInverse",   UnityEngine.AnimatorControllerParameterType.Float),
+            ("Playable", "EyeHeightAsMeters",    UnityEngine.AnimatorControllerParameterType.Float),
+            ("Playable", "EyeHeightAsPercent",   UnityEngine.AnimatorControllerParameterType.Float),
+            ("Social",   "IsOnFriendsList",      UnityEngine.AnimatorControllerParameterType.Bool),
+            ("System",   "IsAnimatorEnabled",    UnityEngine.AnimatorControllerParameterType.Bool),
+        };
+
         /* Finds the ReorderableList field on a ParameterControllerView instance by type, since the field name is internal. */
         static ReorderableList FindParamList(object instance)
         {
@@ -241,12 +343,86 @@ namespace YGDR.Editor.Animation
             foreach (UnityEngine.AnimatorControllerParameterType type in
                      Enum.GetValues(typeof(UnityEngine.AnimatorControllerParameterType)))
             {
+                var capturedAddType = type;
+                menu.AddItem(new GUIContent($"Add Parameter above/{type}"), false, () =>
+                    AddParameterAbove(controller, capturedIndex, capturedAddType));
+            }
+            var existingParamNames = new HashSet<string>(controller.parameters.Select(p => p.name));
+            foreach (var (category, vrcParamName, vrcParamType) in VrcParameters)
+            {
+                bool alreadyExists = existingParamNames.Contains(vrcParamName);
+                var content = new GUIContent($"VRC/{category}/{vrcParamName}");
+                if (alreadyExists)
+                {
+                    menu.AddDisabledItem(content, true);
+                }
+                else
+                {
+                    var capturedName = vrcParamName;
+                    var capturedType = vrcParamType;
+                    menu.AddItem(content, false, () =>
+                        WindowPatchReflection.InsertParameterAtIndex(controller, capturedIndex, capturedName, capturedType));
+                }
+            }
+            menu.AddSeparator("");
+            foreach (UnityEngine.AnimatorControllerParameterType type in
+                     Enum.GetValues(typeof(UnityEngine.AnimatorControllerParameterType)))
+            {
                 if (type == parameter.type) continue;
                 var capturedType = type;
                 menu.AddItem(new GUIContent($"Convert to {type}"), false, () =>
                     ConvertParameter(controller, capturedIndex, capturedType));
             }
+
+            var expressionParameters = VRCSyncCache.GetExpressionParameters();
+            if (expressionParameters?.parameters != null)
+            {
+                VRCExpressionParameters.Parameter vrcParam = null;
+                foreach (var expressionParameter in expressionParameters.parameters)
+                    if (expressionParameter.name == parameter.name) { vrcParam = expressionParameter; break; }
+
+                var capturedExpressionParameters = expressionParameters;
+                var capturedParamName = parameter.name;
+                var capturedParamType = parameter.type;
+                menu.AddSeparator("");
+
+                if (vrcParam != null)
+                {
+                    bool capturedSynced = vrcParam.networkSynced;
+                    menu.AddItem(new GUIContent(capturedSynced ? "Set Not Synced" : "Set Synced"), false,
+                        () => SetVrcSynced(capturedExpressionParameters, capturedParamName, !capturedSynced));
+                }
+                else
+                {
+                    menu.AddItem(new GUIContent("Add to VRC Parameters"), false,
+                        () => AddToVrcParameters(capturedExpressionParameters, capturedParamName, capturedParamType));
+                }
+
+                var capturedController = controller;
+                menu.AddSeparator("");
+                menu.AddItem(new GUIContent("Add All to VRC Parameters"), false,
+                    () => AddAllToVrcParameters(capturedExpressionParameters, capturedController));
+            }
+
+            menu.AddSeparator("");
+            var capturedFindParameter = parameter;
+            var capturedFindController = controller;
+            menu.AddItem(new GUIContent("Find Parameter Uses"), false,
+                () => AnimatorFindUsageWindow.Open(capturedFindParameter, capturedFindController));
+
             menu.ShowAsContext();
+        }
+
+        static void AddParameterAbove(UnityEditor.Animations.AnimatorController controller, int index,
+            UnityEngine.AnimatorControllerParameterType type)
+        {
+            string baseName = type.ToString();
+            string paramName = baseName;
+            var existingNames = new HashSet<string>(controller.parameters.Select(parameter => parameter.name));
+            int counter = 1;
+            while (existingNames.Contains(paramName))
+                paramName = $"{baseName} {counter++}";
+            WindowPatchReflection.InsertParameterAtIndex(controller, index, paramName, type);
         }
 
         /* Changes the type of a parameter at the given index and fixes all affected transition conditions across all layers. */
@@ -295,6 +471,75 @@ namespace YGDR.Editor.Animation
 
             foreach (var childStateMachine in sm.stateMachines)
                 FixConditionsForConversion(childStateMachine.stateMachine, paramName, sourceType, newType);
+        }
+
+        /* Appends a VRC expression parameter for every animator parameter not already present in the expression parameters asset. */
+        static void AddAllToVrcParameters(VRCExpressionParameters expressionParameters,
+            UnityEditor.Animations.AnimatorController controller)
+        {
+            Undo.RecordObject(expressionParameters, "Add All Parameters to VRC");
+            var existingNames = new HashSet<string>(expressionParameters.parameters.Select(expressionParameter => expressionParameter.name));
+            var paramsList = expressionParameters.parameters.ToList();
+
+            foreach (var animatorParameter in controller.parameters)
+            {
+                if (existingNames.Contains(animatorParameter.name)) continue;
+                paramsList.Add(new VRCExpressionParameters.Parameter
+                {
+                    name = animatorParameter.name,
+                    valueType = animatorParameter.type switch
+                    {
+                        UnityEngine.AnimatorControllerParameterType.Float => VRCExpressionParameters.ValueType.Float,
+                        UnityEngine.AnimatorControllerParameterType.Int   => VRCExpressionParameters.ValueType.Int,
+                        _                                                  => VRCExpressionParameters.ValueType.Bool
+                    },
+                    networkSynced = false,
+                    saved = false,
+                    defaultValue = 0f
+                });
+            }
+
+            expressionParameters.parameters = paramsList.ToArray();
+            EditorUtility.SetDirty(expressionParameters);
+        }
+
+        /* Appends a new VRC expression parameter matching the animator parameter type. Defaults to synced, not saved. */
+        static void AddToVrcParameters(VRCExpressionParameters expressionParameters, string paramName,
+            UnityEngine.AnimatorControllerParameterType paramType)
+        {
+            Undo.RecordObject(expressionParameters, "Add VRC Parameter");
+            var newParam = new VRCExpressionParameters.Parameter
+            {
+                name = paramName,
+                valueType = paramType switch
+                {
+                    UnityEngine.AnimatorControllerParameterType.Float => VRCExpressionParameters.ValueType.Float,
+                    UnityEngine.AnimatorControllerParameterType.Int   => VRCExpressionParameters.ValueType.Int,
+                    _                                                  => VRCExpressionParameters.ValueType.Bool
+                },
+                networkSynced = true,
+                saved = false,
+                defaultValue = 0f
+            };
+            var paramsList = expressionParameters.parameters.ToList();
+            paramsList.Add(newParam);
+            expressionParameters.parameters = paramsList.ToArray();
+            EditorUtility.SetDirty(expressionParameters);
+        }
+
+        /* Sets networkSynced on the named VRC expression parameter, registers undo, and marks the asset dirty. */
+        static void SetVrcSynced(VRCExpressionParameters expressionParameters, string paramName, bool synced)
+        {
+            Undo.RecordObject(expressionParameters, synced ? "Set VRC Parameter Synced" : "Set VRC Parameter Not Synced");
+            foreach (var expressionParameter in expressionParameters.parameters)
+            {
+                if (expressionParameter.name == paramName)
+                {
+                    expressionParameter.networkSynced = synced;
+                    break;
+                }
+            }
+            EditorUtility.SetDirty(expressionParameters);
         }
 
         /* Maps a condition to the nearest valid mode for newType (e.g. Equals→If when Int→Bool), returning false if no mapping exists. */
@@ -486,8 +731,6 @@ namespace YGDR.Editor.Animation
             }
 
             EditorUtility.SetDirty(controller);
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
             Traverse.Create(layerView).Property("selectedLayerIndex").SetValue(targetIndex);
         }
 
@@ -707,5 +950,166 @@ namespace YGDR.Editor.Animation
         }
     }
 
+    // Caches VRC expression parameter sync state for the last qualifying avatar + open controller.
+    // Icons persist when clicking non-avatar objects. Rebuilds only when a different qualifying avatar is selected.
+    internal static class VRCSyncCache
+    {
+        static GameObject _cachedAvatarRoot;
+        static Dictionary<string, bool> _syncMap;
+        static Dictionary<string, VRCExpressionParameters.ValueType> _valueTypeMap;
+
+        static VRCSyncCache()
+        {
+            Selection.selectionChanged += OnSelectionChanged;
+            Undo.undoRedoPerformed += OnUndoRedo;
+            ObjectChangeEvents.changesPublished += OnObjectChanged;
+        }
+
+        static void OnSelectionChanged()
+        {
+            var activeGO = Selection.activeGameObject;
+            if (activeGO == null) return;
+
+            var avatarDescriptor = activeGO.GetComponentInParent<VRCAvatarDescriptor>();
+            if (avatarDescriptor == null) return;
+
+            if (ReferenceEquals(avatarDescriptor.gameObject, _cachedAvatarRoot)) return;
+
+            Rebuild(avatarDescriptor);
+        }
+
+        static void OnUndoRedo()
+        {
+            if (_cachedAvatarRoot == null) return;
+            var avatarDescriptor = _cachedAvatarRoot.GetComponent<VRCAvatarDescriptor>();
+            if (avatarDescriptor != null) Rebuild(avatarDescriptor);
+        }
+
+        static void OnObjectChanged(ref ObjectChangeEventStream stream)
+        {
+            if (_cachedAvatarRoot == null) return;
+            var avatarDescriptor = _cachedAvatarRoot.GetComponent<VRCAvatarDescriptor>();
+            if (avatarDescriptor?.expressionParameters == null) return;
+
+            int expressionParametersInstanceId = avatarDescriptor.expressionParameters.GetInstanceID();
+            for (int i = 0; i < stream.length; i++)
+            {
+                if (stream.GetEventType(i) != ObjectChangeKind.ChangeAssetObjectProperties) continue;
+                stream.GetChangeAssetObjectPropertiesEvent(i, out var changeEvent);
+                if (changeEvent.instanceId == expressionParametersInstanceId)
+                {
+                    Rebuild(avatarDescriptor);
+                    return;
+                }
+            }
+        }
+
+        static void Rebuild(VRCAvatarDescriptor avatarDescriptor)
+        {
+            try
+            {
+                _syncMap = null;
+                _valueTypeMap = null;
+                _cachedAvatarRoot = null;
+
+                var openController = WindowPatchReflection.GetOpenController();
+                if (openController == null) return;
+
+                bool controllerInAnimator = avatarDescriptor.GetComponent<Animator>()?.runtimeAnimatorController as UnityEditor.Animations.AnimatorController == openController;
+
+                bool controllerInDescriptor = false;
+                foreach (var layer in avatarDescriptor.baseAnimationLayers)
+                    if (layer.animatorController == openController) { controllerInDescriptor = true; break; }
+                if (!controllerInDescriptor)
+                    foreach (var layer in avatarDescriptor.specialAnimationLayers)
+                        if (layer.animatorController == openController) { controllerInDescriptor = true; break; }
+
+                if (!controllerInAnimator && !controllerInDescriptor) return;
+
+                var expressionParameters = avatarDescriptor.expressionParameters;
+                if (expressionParameters?.parameters == null) return;
+
+                _cachedAvatarRoot = avatarDescriptor.gameObject;
+                _syncMap = new Dictionary<string, bool>(expressionParameters.parameters.Length);
+                _valueTypeMap = new Dictionary<string, VRCExpressionParameters.ValueType>(expressionParameters.parameters.Length);
+                foreach (var expressionParameter in expressionParameters.parameters)
+                {
+                    if (!string.IsNullOrEmpty(expressionParameter.name))
+                    {
+                        _syncMap[expressionParameter.name] = expressionParameter.networkSynced;
+                        _valueTypeMap[expressionParameter.name] = expressionParameter.valueType;
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[AnimatorTools] VRCSyncCache rebuild error: {e}");
+            }
+        }
+
+        internal static bool TryGetSync(string paramName, out bool synced)
+        {
+            synced = false;
+            if (_syncMap == null) return false;
+            return _syncMap.TryGetValue(paramName, out synced);
+        }
+
+        internal static bool TryGetVrcValueType(string paramName, out VRCExpressionParameters.ValueType valueType)
+        {
+            valueType = default;
+            if (_valueTypeMap == null) return false;
+            return _valueTypeMap.TryGetValue(paramName, out valueType);
+        }
+
+        internal static VRCExpressionParameters GetExpressionParameters()
+        {
+            if (_cachedAvatarRoot == null) return null;
+            return _cachedAvatarRoot.GetComponent<VRCAvatarDescriptor>()?.expressionParameters;
+        }
+    }
+
+    internal static class HierarchyContextMenu
+    {
+        [MenuItem("GameObject/Find Animation Uses", false, 0)]
+        static void FindAnimationUses()
+        {
+            var gameObject = Selection.activeGameObject;
+            var animator = gameObject.GetComponentInParent<Animator>();
+            var controller = (animator.runtimeAnimatorController as UnityEditor.Animations.AnimatorController)
+                ?? WindowPatchReflection.GetOpenController();
+            var relativePath = GetRelativePath(animator.transform, gameObject.transform);
+            if (relativePath == null) return;
+            AnimatorFindUsageWindow.Open(relativePath, controller, gameObject.name);
+        }
+
+        [MenuItem("GameObject/Find Animation Uses", true)]
+        static bool FindAnimationUsesValidate()
+        {
+            var gameObject = Selection.activeGameObject;
+            if (gameObject == null) return false;
+            var animator = gameObject.GetComponentInParent<Animator>();
+            if (animator == null) return false;
+            if ((animator.runtimeAnimatorController as UnityEditor.Animations.AnimatorController) != null) return true;
+            var activeController = WindowPatchReflection.GetOpenController();
+            if (activeController == null) return false;
+            var descriptor = gameObject.GetComponentInParent<VRCAvatarDescriptor>();
+            if (descriptor == null) return false;
+            return descriptor.baseAnimationLayers.Concat(descriptor.specialAnimationLayers)
+                .Any(layer => layer.animatorController as UnityEditor.Animations.AnimatorController == activeController);
+        }
+
+        static string GetRelativePath(Transform root, Transform target)
+        {
+            if (target == root) return "";
+            var parts = new List<string>();
+            var current = target;
+            while (current != null && current != root)
+            {
+                parts.Insert(0, current.name);
+                current = current.parent;
+            }
+            return current == null ? null : string.Join("/", parts);
+        }
+    }
 }
 #endif

@@ -48,12 +48,19 @@ namespace YGDR.Editor.Animation
            Receives the graph object via Ldarg_1 injection from the NodeUI IL. */
         internal static void CreateAndDisplay(object graph)
         {
-            if (Event.current.type != EventType.ContextClick) return;
-            var menu = new GenericMenu();
-            AddMenuItems(graph, menu);
-            if (menu.GetItemCount() == 0) return;
-            menu.ShowAsContext();
-            Event.current.Use();
+            try
+            {
+                if (Event.current.type != EventType.ContextClick) return;
+                var menu = new GenericMenu();
+                AddMenuItems(graph, menu);
+                if (menu.GetItemCount() == 0) return;
+                menu.ShowAsContext();
+                Event.current.Use();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[AnimatorTools] State node context menu error: {e}");
+            }
         }
 
         /* Appends state-node context menu items to an existing GenericMenu based on current selection.
@@ -64,6 +71,12 @@ namespace YGDR.Editor.Animation
             {
                 var graph = ResolveGraph(node);
                 if (graph == null) return;
+
+                if (AnimatorEditorInit.GetActiveStateMachineMethod == null)
+                {
+                    Debug.LogError("[AnimatorTools] GetActiveStateMachineMethod is null — Unity internal API may have changed. State node context menu unavailable.");
+                    return;
+                }
 
                 var activeSM = AnimatorEditorInit.GetActiveStateMachineMethod.Invoke(graph, null)
                     as AnimatorStateMachine;
@@ -360,12 +373,19 @@ namespace YGDR.Editor.Animation
         /* Entry point for short StateMachineNode NodeUI methods: builds and shows the sub-state machine context menu. */
         internal static void CreateAndDisplay(object graph)
         {
-            if (Event.current.type != EventType.ContextClick) return;
-            var menu = new GenericMenu();
-            AddMenuItems(graph, menu);
-            if (menu.GetItemCount() == 0) return;
-            menu.ShowAsContext();
-            Event.current.Use();
+            try
+            {
+                if (Event.current.type != EventType.ContextClick) return;
+                var menu = new GenericMenu();
+                AddMenuItems(graph, menu);
+                if (menu.GetItemCount() == 0) return;
+                menu.ShowAsContext();
+                Event.current.Use();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[AnimatorTools] Sub-SM context menu error: {e}");
+            }
         }
 
         /* Appends Unpack to an existing GenericMenu when the selected object is a direct child sub state machine. */
@@ -380,6 +400,12 @@ namespace YGDR.Editor.Animation
                 var getGraph = AccessTools.Method(type, "get_graph");
                 var graph = getGraph != null ? getGraph.Invoke(node, null) : node;
                 if (graph == null) return;
+
+                if (AnimatorEditorInit.GetActiveStateMachineMethod == null)
+                {
+                    Debug.LogError("[AnimatorTools] GetActiveStateMachineMethod is null — Unity internal API may have changed. Sub-SM context menu unavailable.");
+                    return;
+                }
 
                 var activeSM = AnimatorEditorInit.GetActiveStateMachineMethod.Invoke(graph, null)
                     as AnimatorStateMachine;

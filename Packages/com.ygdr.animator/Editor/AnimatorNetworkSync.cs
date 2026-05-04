@@ -119,10 +119,12 @@ namespace YGDR.Editor.Animation
             var bbox = GetBoundingBox(entries);
             float verticalOffset = bbox.height + 150f;
 
+            var switchStatePosition = new Vector3(parentSM.entryPosition.x - 20f, parentSM.entryPosition.y + 80f, 0f);
+
             AnimatorStateMachine targetSM;
             if (config.packIntoSubSM)
             {
-                var subStateMachinePosition = new Vector3(bbox.xMin, bbox.yMax + 150f, 0f);
+                var subStateMachinePosition = new Vector3(switchStatePosition.x, switchStatePosition.y + 150f, 0f);
                 targetSM = parentSM.AddStateMachine("Network Sync", subStateMachinePosition);
                 Undo.RegisterCreatedObjectUndo(targetSM, "Network Sync");
             }
@@ -228,8 +230,7 @@ namespace YGDR.Editor.Animation
             var origDefault = parentSM.defaultState;
             if (origDefault != null && stateCopyMap.TryGetValue(origDefault, out var copyDefault))
             {
-                var switchPos = new Vector3(parentSM.entryPosition.x - 20f, parentSM.entryPosition.y + 80f, 0f);
-                var switchState = parentSM.AddState("Network Switch", switchPos);
+                var switchState = parentSM.AddState("Network Switch", switchStatePosition);
                 Undo.RegisterCreatedObjectUndo(switchState, "Network Sync");
                 switchState.motion = origDefault.motion;
                 switchState.speed = origDefault.speed;

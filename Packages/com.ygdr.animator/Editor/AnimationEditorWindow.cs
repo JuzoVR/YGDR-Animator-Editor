@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using System;
 using System.Linq;
+using HarmonyLib;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
@@ -19,8 +20,11 @@ namespace YGDR.Editor.Animation
         AnimatorStateMachine _activeStateMachine;
         string _controllerName = "—";
         string _layerName = "—";
+        string[] _subContextPath;
         UnityEngine.Object _cachedGraph;
+        UnityEngine.Object _cachedBlendTreeGraphGUI;
         bool _showSharedConditions = true;
+        bool _paletteApplied;
 
         [MenuItem("YGDR/YGDR Animator Editor")]
         static void Open()
@@ -32,8 +36,10 @@ namespace YGDR.Editor.Animation
 
         void OnEnable()
         {
+            _cachedVersion = null;
             Selection.selectionChanged += OnSelectionChanged;
             EditorApplication.update += PollAnimatorWindow;
+            ObjectChangeEvents.changesPublished += OnAssetChangesPublished;
             wantsMouseMove = true;
             OnSelectionChanged();
         }
@@ -42,12 +48,14 @@ namespace YGDR.Editor.Animation
         {
             Selection.selectionChanged -= OnSelectionChanged;
             EditorApplication.update -= PollAnimatorWindow;
+            ObjectChangeEvents.changesPublished -= OnAssetChangesPublished;
         }
 
         void OnSelectionChanged()
         {
             _selectedTransitions = Selection.objects.OfType<AnimatorStateTransition>().ToArray();
             _selectedStates = Selection.objects.OfType<AnimatorState>().ToArray();
+            _conditionCacheDirty = true;
             Repaint();
         }
 
@@ -72,7 +80,25 @@ namespace YGDR.Editor.Animation
 
             if (activeStateMachine == null)
             {
-                if (_controller != null) { _controller = null; _controllerName = "—"; _layerName = "—"; Repaint(); }
+                // Fallback: blend tree view — SM graph returns null activeStateMachine.
+                // Derive controller from the blend tree graph's rootBlendTree asset path.
+                var blendTreeController = TryGetControllerFromBlendTreeGraph();
+                if (blendTreeController != null)
+                {
+                    var rootBlendTree         = TryGetRootBlendTree();
+                    string blendTreeLayerName = rootBlendTree != null ? FindLayerForRootBlendTree(blendTreeController, rootBlendTree) : "—";
+                    string blendTreeName      = rootBlendTree?.name;
+                    bool subContextUnchanged  = blendTreeName == null ? _subContextPath == null : _subContextPath != null && _subContextPath.Length == 1 && _subContextPath[0] == blendTreeName;
+                    if (_controller == blendTreeController && _layerName == blendTreeLayerName && subContextUnchanged) return;
+                    _controller     = blendTreeController;
+                    _controllerName = blendTreeController.name;
+                    _layerName      = blendTreeLayerName;
+                    _subContextPath = blendTreeName != null ? new[] { blendTreeName } : null;
+                    Repaint();
+                    return;
+                }
+
+                if (_controller != null) { _controller = null; _activeStateMachine = null; _controllerName = "—"; _layerName = "—"; _subContextPath = null; Repaint(); }
                 return;
             }
 
@@ -83,7 +109,7 @@ namespace YGDR.Editor.Animation
             string layerName = "—";
             foreach (var layer in controller.layers)
             {
-                if (SMContainsOrIs(layer.stateMachine, activeStateMachine)) { layerName = layer.name; break; }
+                if (layer.stateMachine == activeStateMachine || SMContainsOrIs(layer.stateMachine, activeStateMachine)) { layerName = layer.name; break; }
             }
 
             string controllerName = controller.name;
@@ -93,7 +119,39 @@ namespace YGDR.Editor.Animation
             _activeStateMachine = activeStateMachine;
             _controllerName = controllerName;
             _layerName = layerName;
+            _subContextPath = BuildSubSMPath(controller, layerName, activeStateMachine);
             Repaint();
+        }
+
+        AnimatorController TryGetControllerFromBlendTreeGraph()
+        {
+            if (AnimatorEditorInit.BlendTreeGraphGUIType == null) return null;
+
+            if (_cachedBlendTreeGraphGUI != null)
+            {
+                var controller = ControllerFromBlendTreeGraphGUI(_cachedBlendTreeGraphGUI);
+                if (controller != null) return controller;
+                _cachedBlendTreeGraphGUI = null;
+            }
+
+            foreach (var graphGUI in Resources.FindObjectsOfTypeAll(AnimatorEditorInit.BlendTreeGraphGUIType))
+            {
+                var controller = ControllerFromBlendTreeGraphGUI(graphGUI);
+                if (controller != null) { _cachedBlendTreeGraphGUI = graphGUI; return controller; }
+            }
+
+            return null;
+        }
+
+        static AnimatorController ControllerFromBlendTreeGraphGUI(UnityEngine.Object graphGUI)
+        {
+            var graph = Traverse.Create(graphGUI).Property("graph").GetValue();
+            if (graph == null) return null;
+            var rootBlendTree = Traverse.Create(graph).Property("rootBlendTree").GetValue() as BlendTree;
+            if (rootBlendTree == null) return null;
+            var assetPath = AssetDatabase.GetAssetPath(rootBlendTree);
+            if (string.IsNullOrEmpty(assetPath)) return null;
+            return AssetDatabase.LoadAssetAtPath<AnimatorController>(assetPath);
         }
 
         /* Returns true if sm is target or recursively contains target as a nested sub state machine. */
@@ -105,22 +163,78 @@ namespace YGDR.Editor.Animation
             return false;
         }
 
+        BlendTree TryGetRootBlendTree()
+        {
+            if (_cachedBlendTreeGraphGUI == null) return null;
+            var graph = Traverse.Create(_cachedBlendTreeGraphGUI).Property("graph").GetValue();
+            if (graph == null) return null;
+            return Traverse.Create(graph).Property("rootBlendTree").GetValue() as BlendTree;
+        }
+
+        static string FindLayerForRootBlendTree(AnimatorController controller, BlendTree rootBlendTree)
+        {
+            foreach (var layer in controller.layers)
+                if (SMContainsMotion(layer.stateMachine, rootBlendTree)) return layer.name;
+            return "—";
+        }
+
+        static bool SMContainsMotion(AnimatorStateMachine sm, Motion target)
+        {
+            foreach (var childState in sm.states)
+                if (childState.state.motion == target) return true;
+            foreach (var childStateMachine in sm.stateMachines)
+                if (SMContainsMotion(childStateMachine.stateMachine, target)) return true;
+            return false;
+        }
+
+        static string[] BuildSubSMPath(AnimatorController controller, string layerName, AnimatorStateMachine target)
+        {
+            if (controller == null || target == null || layerName == "—") return null;
+            var layer = System.Array.Find(controller.layers, l => l.name == layerName);
+            if (layer == null || layer.stateMachine == target) return null;
+            var pathSegments = new System.Collections.Generic.List<string>();
+            if (FindSMPath(layer.stateMachine, target, pathSegments)) return pathSegments.ToArray();
+            return null;
+        }
+
+        static bool FindSMPath(AnimatorStateMachine current, AnimatorStateMachine target, System.Collections.Generic.List<string> pathSegments)
+        {
+            foreach (var childStateMachine in current.stateMachines)
+            {
+                if (childStateMachine.stateMachine == target)
+                {
+                    pathSegments.Add(target.name);
+                    return true;
+                }
+                if (FindSMPath(childStateMachine.stateMachine, target, pathSegments))
+                {
+                    pathSegments.Insert(0, childStateMachine.stateMachine.name);
+                    return true;
+                }
+            }
+            return false;
+        }
+
         void OnGUI()
         {
+            if (!_paletteApplied)
+            {
+                _paletteApplied = true;
+                var settings = AnimatorDefaultSettings.Load();
+                Styles.ApplyPalette(settings.paletteColorPrimary, settings.paletteColorSecondary, settings.paletteColorAccent);
+            }
             if (Event.current.type == EventType.MouseMove)
                 Repaint();
             DrawTabs();
-            DrawSeparator();
             DrawLayerBar();
-            EditorGUILayout.Space(1);
             _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition, GUIStyle.none, GUI.skin.verticalScrollbar);
             _scrollPosition.x = 0;
             EditorGUILayout.BeginHorizontal();
             GUILayout.Space(8);
             EditorGUILayout.BeginVertical();
-            if (_tabOpen[0]) { DrawSectionHeader("Transitions"); DrawTransitionsTab(); EditorGUILayout.Space(10); }
-            if (_tabOpen[1]) { DrawSectionHeader("States");      DrawStatesTab();      EditorGUILayout.Space(10); }
-            if (_tabOpen[2]) { DrawSectionHeader("Controller");  DrawControllerTab();  EditorGUILayout.Space(10); }
+            if (_tabOpen[0]) { DrawSectionHeader("Transitions", _selectedTransitions.Length > 0 ? $"{_selectedTransitions.Length} selected" : null); DrawTransitionsTab(); EditorGUILayout.Space(10); }
+            if (_tabOpen[1]) { DrawSectionHeader("States", _selectedStates.Length > 0 ? $"{_selectedStates.Length} selected" : null); DrawStatesTab(); EditorGUILayout.Space(10); }
+            if (_tabOpen[2]) { DrawSectionHeader("Controller", ControllerSectionCountLabel);  DrawControllerTab();  EditorGUILayout.Space(10); }
             if (_tabOpen[3]) { DrawSectionHeader("Settings");    DrawSettingsTab();    EditorGUILayout.Space(10); }
             EditorGUILayout.EndVertical();
             GUILayout.Space(8);
@@ -131,21 +245,59 @@ namespace YGDR.Editor.Animation
 
         void DrawTabs()
         {
-            using var _ = new EditorGUILayout.HorizontalScope(EditorStyles.toolbar, GUILayout.ExpandWidth(true));
+            using var _ = new EditorGUILayout.HorizontalScope(GUIStyle.none, GUILayout.Height(24), GUILayout.ExpandWidth(true));
             for (int i = 0; i < _tabs.Length; i++)
             {
                 var style = _tabOpen[i] ? Styles.TabActive : Styles.TabInactive;
-                _tabOpen[i] = GUILayout.Toggle(_tabOpen[i], _tabs[i], style, GUILayout.ExpandWidth(true));
+                _tabOpen[i] = GUILayout.Toggle(_tabOpen[i], _tabs[i], style, GUILayout.ExpandWidth(true), GUILayout.Height(24));
                 EditorGUIUtility.AddCursorRect(GUILayoutUtility.GetLastRect(), MouseCursor.Link);
             }
         }
 
         void DrawLayerBar()
         {
-            using var _ = new EditorGUILayout.HorizontalScope(Styles.LayerBar);
-            GUILayout.FlexibleSpace();
-            GUILayout.Label($"{_controllerName} : {_layerName}", Styles.LayerName);
-            GUILayout.FlexibleSpace();
+            var barRect = EditorGUILayout.GetControlRect(false, 28f, GUILayout.ExpandWidth(true));
+            EditorGUI.DrawRect(new Rect(0, barRect.y, EditorGUIUtility.currentViewWidth, barRect.height), Styles.SectionHeaderBg);
+
+            bool hasLayer      = _layerName != "—";
+            bool hasSubContext = _subContextPath != null && _subContextPath.Length > 0;
+
+            float x = barRect.x + 8f;
+            DrawBreadcrumbSegment(ref x, barRect, _controllerName, isLeaf: !hasLayer && !hasSubContext);
+
+            if (hasLayer)
+            {
+                DrawBreadcrumbSeparator(ref x, barRect);
+                DrawBreadcrumbSegment(ref x, barRect, _layerName, isLeaf: !hasSubContext);
+            }
+
+            if (hasSubContext)
+            {
+                for (int i = 0; i < _subContextPath.Length; i++)
+                {
+                    DrawBreadcrumbSeparator(ref x, barRect);
+                    DrawBreadcrumbSegment(ref x, barRect, _subContextPath[i], isLeaf: i == _subContextPath.Length - 1);
+                }
+            }
+        }
+
+        static readonly GUIContent s_breadcrumbSeparatorContent = new(" > ");
+        static readonly GUIContent s_breadcrumbSegmentContent  = new();
+
+        static void DrawBreadcrumbSegment(ref float x, Rect barRect, string text, bool isLeaf)
+        {
+            var style = isLeaf ? Styles.BreadcrumbLeaf : Styles.BreadcrumbParent;
+            s_breadcrumbSegmentContent.text = text;
+            float width = style.CalcSize(s_breadcrumbSegmentContent).x;
+            GUI.Label(new Rect(x, barRect.y, width, barRect.height), text, style);
+            x += width;
+        }
+
+        static void DrawBreadcrumbSeparator(ref float x, Rect barRect)
+        {
+            float width = Styles.BreadcrumbParent.CalcSize(s_breadcrumbSeparatorContent).x;
+            GUI.Label(new Rect(x, barRect.y, width, barRect.height), s_breadcrumbSeparatorContent, Styles.BreadcrumbParent);
+            x += width;
         }
 
         /* GUILayout.Button that shows the finger-pointer cursor on hover. */
@@ -173,22 +325,30 @@ namespace YGDR.Editor.Animation
         }
 
         /* Draws a full-width dark header bar containing label, spanning edge-to-edge regardless of scroll indent. */
-        static void DrawSectionHeader(string label)
+        static void DrawSectionHeader(string label, string rightLabel = null)
         {
             var rect = EditorGUILayout.GetControlRect(false, 28f, GUILayout.ExpandWidth(true));
-            var backgroundRect = rect;
-            backgroundRect.x = 0;
-            backgroundRect.width = EditorGUIUtility.currentViewWidth;
+            var backgroundRect = new Rect(0, rect.y - EditorGUIUtility.standardVerticalSpacing, EditorGUIUtility.currentViewWidth, rect.height + EditorGUIUtility.standardVerticalSpacing);
             EditorGUI.DrawRect(backgroundRect, Styles.SectionHeaderBg);
             GUI.Label(rect, label, Styles.TabSectionLabel);
+            if (rightLabel != null)
+                GUI.Label(rect, rightLabel, Styles.SectionHeaderCount);
+        }
+
+        static string _cachedVersion;
+        static string GetVersion()
+        {
+            if (_cachedVersion != null) return _cachedVersion;
+            _cachedVersion = "V" + (UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(AnimationEditorWindow).Assembly)?.version ?? "?");
+            return _cachedVersion;
         }
 
         static void DrawFooter()
         {
             var rect = EditorGUILayout.GetControlRect(false, 18f, GUILayout.ExpandWidth(true));
-            EditorGUI.DrawRect(rect, new Color(0f, 0f, 0f, 0.3f));
+            EditorGUI.DrawRect(rect, Styles.SectionHeaderBg);
             GUI.Label(rect, "Created by YerGodDamnRight", Styles.FooterLabel);
-            GUI.Label(rect, "V0.9.1", Styles.FooterVersion);
+            GUI.Label(rect, GetVersion(), Styles.FooterVersion);
         }
 
         static void DrawSeparator()

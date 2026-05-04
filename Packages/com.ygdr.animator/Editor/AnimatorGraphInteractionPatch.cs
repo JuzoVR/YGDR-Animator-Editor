@@ -11,8 +11,8 @@ using UnityEngine;
 
 namespace YGDR.Editor.Animation
 {
-    // Double-click empty graph space → create state at cursor
-    // Also tracks hovered node for chain-mode snap
+    /* Double-click empty graph space → create state at cursor; assigns _buffer.anim as motion if found in package.
+       Also tracks hovered node for chain-mode snap. */
     [HarmonyPatch]
     internal static class PatchGraphDoubleClickCreate
     {
@@ -23,6 +23,7 @@ namespace YGDR.Editor.Animation
         static Vector2 _lastMousePosition;
         static HashSet<AnimatorState> _prepasteStateSet;
         static AnimatorStateMachine _pasteSM;
+        static AnimationClip _bufferClip;
 
         /* Lazily resolves and caches the m_Graph FieldInfo from the GraphGUI instance type. */
         static FieldInfo MGraphField(object instance) =>
@@ -183,6 +184,15 @@ namespace YGDR.Editor.Animation
                 }
                 activeStateMachine.states = states;
                 EditorUtility.SetDirty(activeStateMachine);
+
+                var bufferClip = FindBufferClip();
+                if (bufferClip != null)
+                {
+                    Undo.RegisterCompleteObjectUndo(newState, "Create State");
+                    newState.motion = bufferClip;
+                    EditorUtility.SetDirty(newState);
+                }
+
                 currentEvent.Use();
             }
             catch (Exception e)
@@ -253,6 +263,22 @@ namespace YGDR.Editor.Animation
             PatchStateChainTransition.SnapTarget = null;
         }
 
+        static AnimationClip FindBufferClip()
+        {
+            if (_bufferClip != null) return _bufferClip;
+            var guids = AssetDatabase.FindAssets("_buffer t:AnimationClip", new[] { "Packages/com.ygdr.animator/Editor/Resources" });
+            foreach (var guid in guids)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                if (System.IO.Path.GetFileNameWithoutExtension(path) == "_buffer")
+                {
+                    _bufferClip = AssetDatabase.LoadAssetAtPath<AnimationClip>(path);
+                    return _bufferClip;
+                }
+            }
+            return null;
+        }
+
         /* Returns the nodes collection from a graph object, trying the nodes property then the nodes field. */
         internal static IEnumerable GetNodes(object graph)
         {
@@ -266,6 +292,9 @@ namespace YGDR.Editor.Animation
     [HarmonyPatch]
     internal static class PatchEdgeGUIDoEdges
     {
+        static FastInvokeHandler _drawArrowInvoker;
+        static FastInvokeHandler _edgeSizeMultiplierInvoker;
+
         [HarmonyTargetMethod]
         static MethodBase TargetMethod() =>
             AccessTools.Method(
@@ -273,7 +302,7 @@ namespace YGDR.Editor.Animation
                 "DoEdges");
 
         [HarmonyPostfix]
-        static void Postfix()
+        static void Postfix(object __instance)
         {
             bool isActive = PatchStateChainTransition.ChainActive || PatchTransitionCopyPaste.PasteActive;
             if (!isActive) return;
@@ -300,19 +329,34 @@ namespace YGDR.Editor.Animation
                     destination = new Vector3(Event.current.mousePosition.x, Event.current.mousePosition.y, 0);
                 }
 
-                var direction = (destination - source).normalized;
+                var direction     = (destination - source).normalized;
                 var perpendicular = new Vector3(-direction.y, direction.x, 0);
+                var midpoint      = (source + destination) * 0.5f;
+                _edgeSizeMultiplierInvoker ??= MethodInvoker.GetHandler(
+                    AccessTools.PropertyGetter(
+                        AccessTools.TypeByName("UnityEditor.Graphs.AnimationStateMachine.EdgeGUI"),
+                        "edgeSizeMultiplier"));
+                float mult = _edgeSizeMultiplierInvoker != null ? (float)_edgeSizeMultiplierInvoker(__instance) : 1f;
+                var previewColor  = new Color(1f, 1f, 1f, 0.8f);
 
                 Handles.BeginGUI();
-                Handles.color = new Color(1f, 1f, 1f, 0.8f);
-                Handles.DrawAAPolyLine(2f, source, destination);
-
-                var midpoint = (source + destination) * 0.5f;
-                Handles.DrawAAConvexPolygon(
-                    midpoint + direction * 6f,
-                    midpoint - direction * 6f + perpendicular * 5f,
-                    midpoint - direction * 6f - perpendicular * 5f);
+                Handles.color = previewColor;
+                Handles.DrawAAPolyLine(4f * mult, source, destination);
                 Handles.EndGUI();
+
+                _drawArrowInvoker ??= MethodInvoker.GetHandler(
+                    AccessTools.Method(
+                        AccessTools.TypeByName("UnityEditor.Graphs.AnimationStateMachine.EdgeGUI"),
+                        "DrawArrow"));
+                _drawArrowInvoker?.Invoke(null, previewColor, perpendicular, direction, midpoint,
+                    5f * mult, 2f * mult);
+
+                if (AnimatorDefaultSettings.Load().transitionAnimateSelected)
+                {
+                    var animatedPosition = PatchDrawEdge.GetAnimatedArrowPosition(source, midpoint, destination);
+                    _drawArrowInvoker?.Invoke(null, previewColor, perpendicular, direction, animatedPosition,
+                        5f * mult, 2f * mult);
+                }
             }
             catch (Exception e)
             {

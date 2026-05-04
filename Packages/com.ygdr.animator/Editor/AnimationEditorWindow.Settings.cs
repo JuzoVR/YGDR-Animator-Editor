@@ -8,6 +8,7 @@ namespace YGDR.Editor.Animation
 {
     internal partial class AnimationEditorWindow
     {
+        bool _interfaceOpen;
         bool _graphGridOpen;
         bool _nodeIconsOpen;
         bool _transitionOverlayOpen;
@@ -18,29 +19,85 @@ namespace YGDR.Editor.Animation
         void DrawSettingsTab()
         {
             var settings = AnimatorDefaultSettings.Load();
+            DrawInterfaceSection(settings);
+            EditorGUILayout.Space(4);
             DrawGraphGridSection(settings);
-            DrawSeparator();
             EditorGUILayout.Space(4);
             DrawNodeColorsSection(settings);
-            DrawSeparator();
             EditorGUILayout.Space(4);
             DrawOverlaySection(settings);
-            DrawSeparator();
             EditorGUILayout.Space(4);
             DrawTransitionOverlaySection(settings);
-            DrawSeparator();
             EditorGUILayout.Space(4);
             DrawTransitionDefaultsSection(settings);
-            DrawSeparator();
             EditorGUILayout.Space(4);
             DrawStateDefaultsSection(settings);
+        }
+
+        // ── Interface palette ─────────────────────────────────────────────────
+
+        void DrawInterfaceSection(AnimatorDefaultSettings settings)
+        {
+            using (new EditorGUILayout.HorizontalScope(Styles.BehaviorSectionHeader))
+            {
+                if (CursorBtn((_interfaceOpen ? "▼ " : "▶ ") + "Interface", Styles.HeaderLabel, GUILayout.ExpandWidth(false), GUILayout.Height(24)))
+                    _interfaceOpen = !_interfaceOpen;
+                GUILayout.FlexibleSpace();
+                if (CursorBtn("Reset", Styles.IconBtn, GUILayout.Width(48), GUILayout.Height(24)))
+                {
+                    settings.ResetPalette();
+                    Styles.ApplyPalette(settings.paletteColorPrimary, settings.paletteColorSecondary, settings.paletteColorAccent);
+                    settings.Save();
+                }
+            }
+
+            if (!_interfaceOpen) return;
+
+            var bodyRect = EditorGUILayout.BeginVertical(Styles.SectionPadded);
+            if (Event.current.type == EventType.Repaint)
+                EditorGUI.DrawRect(bodyRect, Styles.PrimaryColor);
+            DrawPaletteColorRow("Primary",   ref settings.paletteColorPrimary,   AnimatorDefaultSettings.DefaultPrimary,   settings);
+            DrawPaletteColorRow("Secondary", ref settings.paletteColorSecondary, AnimatorDefaultSettings.DefaultSecondary, settings);
+            DrawPaletteColorRow("Accent",    ref settings.paletteColorAccent,    AnimatorDefaultSettings.DefaultAccent,    settings);
+            EditorGUILayout.EndVertical();
+        }
+
+        void DrawPaletteColorRow(string label, ref Color color, Color defaultColor, AnimatorDefaultSettings settings)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField(label, GUILayout.Width(110));
+                EditorGUI.BeginChangeCheck();
+                var newColor = EditorGUILayout.ColorField(GUIContent.none, color, true, false, false);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    color = ClampPaletteColor(newColor);
+                    Styles.ApplyPalette(settings.paletteColorPrimary, settings.paletteColorSecondary, settings.paletteColorAccent);
+                    settings.Save();
+                }
+                if (CursorBtn("Reset", Styles.IconBtn, GUILayout.Width(48)))
+                {
+                    color = defaultColor;
+                    Styles.ApplyPalette(settings.paletteColorPrimary, settings.paletteColorSecondary, settings.paletteColorAccent);
+                    settings.Save();
+                }
+            }
+        }
+
+        static Color ClampPaletteColor(Color color)
+        {
+            Color.RGBToHSV(color, out float hue, out float saturation, out float value);
+            value = EditorGUIUtility.isProSkin ? Mathf.Min(value, 0.40f) : Mathf.Max(value, 0.70f);
+            var clamped = Color.HSVToRGB(hue, saturation, value);
+            clamped.a = color.a;
+            return clamped;
         }
 
         // ── Graph background + grid ───────────────────────────────────────────
 
         void DrawGraphGridSection(AnimatorDefaultSettings settings)
         {
-            using (new EditorGUILayout.HorizontalScope(Styles.SectionHeader))
+            using (new EditorGUILayout.HorizontalScope(Styles.BehaviorSectionHeader))
             {
                 if (CursorBtn((_graphGridOpen ? "▼ " : "▶ ") + "Graph Background", Styles.HeaderLabel, GUILayout.ExpandWidth(false), GUILayout.Height(24)))
                     _graphGridOpen = !_graphGridOpen;
@@ -61,6 +118,9 @@ namespace YGDR.Editor.Animation
 
             if (!_graphGridOpen) return;
 
+            var bodyRect = EditorGUILayout.BeginVertical(Styles.SectionPadded);
+            if (Event.current.type == EventType.Repaint)
+                EditorGUI.DrawRect(bodyRect, Styles.PrimaryColor);
             using (new EditorGUI.DisabledScope(!settings.graphGridOverride))
             {
                 using (new EditorGUILayout.HorizontalScope())
@@ -111,6 +171,7 @@ namespace YGDR.Editor.Animation
                     if (EditorGUI.EndChangeCheck()) { settings.graphGridDivisorMinor = div; settings.Save(); }
                 }
             }
+            EditorGUILayout.EndVertical();
         }
 
         /* Draws a labeled color field row with a Reset button that restores defaultColor and auto-saves. */
@@ -138,7 +199,7 @@ namespace YGDR.Editor.Animation
 
         void DrawOverlaySection(AnimatorDefaultSettings settings)
         {
-            using (new EditorGUILayout.HorizontalScope(Styles.SectionHeader))
+            using (new EditorGUILayout.HorizontalScope(Styles.BehaviorSectionHeader))
             {
                 if (CursorBtn((_nodeIconsOpen ? "▼ " : "▶ ") + "Node Icons", Styles.HeaderLabel, GUILayout.ExpandWidth(false), GUILayout.Height(24)))
                     _nodeIconsOpen = !_nodeIconsOpen;
@@ -150,6 +211,9 @@ namespace YGDR.Editor.Animation
 
             if (!_nodeIconsOpen) return;
 
+            var bodyRect = EditorGUILayout.BeginVertical(Styles.SectionPadded);
+            if (Event.current.type == EventType.Repaint)
+                EditorGUI.DrawRect(bodyRect, Styles.PrimaryColor);
             using (new EditorGUI.DisabledScope(!settings.overlayEnabled))
             {
                 using (new EditorGUILayout.HorizontalScope())
@@ -193,13 +257,14 @@ namespace YGDR.Editor.Animation
                 DrawNodeColorRow("Active",   ref settings.overlayActiveColor,   Color.white,                          settings);
                 DrawNodeColorRow("Inactive", ref settings.overlayInactiveColor, new Color(0.45f, 0.45f, 0.45f, 1f),  settings);
             }
+            EditorGUILayout.EndVertical();
         }
 
         // ── Transition overlay ────────────────────────────────────────────────
 
         void DrawTransitionOverlaySection(AnimatorDefaultSettings settings)
         {
-            using (new EditorGUILayout.HorizontalScope(Styles.SectionHeader))
+            using (new EditorGUILayout.HorizontalScope(Styles.BehaviorSectionHeader))
             {
                 if (CursorBtn((_transitionOverlayOpen ? "▼ " : "▶ ") + "Transition Overlay", Styles.HeaderLabel, GUILayout.ExpandWidth(false), GUILayout.Height(24)))
                     _transitionOverlayOpen = !_transitionOverlayOpen;
@@ -211,6 +276,9 @@ namespace YGDR.Editor.Animation
 
             if (!_transitionOverlayOpen) return;
 
+            var bodyRect = EditorGUILayout.BeginVertical(Styles.SectionPadded);
+            if (Event.current.type == EventType.Repaint)
+                EditorGUI.DrawRect(bodyRect, Styles.PrimaryColor);
             using (new EditorGUI.DisabledScope(!settings.transitionOverlayEnabled))
             {
                 using (new EditorGUILayout.HorizontalScope())
@@ -247,13 +315,14 @@ namespace YGDR.Editor.Animation
                     DrawNodeColorRow("Instant ▶",       ref settings.transitionArrowInstantColor,     new Color(0.0f, 0.25f, 0.66f, 1.0f), settings);
                 }
             }
+            EditorGUILayout.EndVertical();
         }
 
         // ── Node colors ───────────────────────────────────────────────────────
 
         void DrawNodeColorsSection(AnimatorDefaultSettings settings)
         {
-            using (new EditorGUILayout.HorizontalScope(Styles.SectionHeader))
+            using (new EditorGUILayout.HorizontalScope(Styles.BehaviorSectionHeader))
             {
                 if (CursorBtn((_nodeColorsOpen ? "▼ " : "▶ ") + "Node Colors", Styles.HeaderLabel, GUILayout.ExpandWidth(false), GUILayout.Height(24)))
                     _nodeColorsOpen = !_nodeColorsOpen;
@@ -274,6 +343,9 @@ namespace YGDR.Editor.Animation
 
             if (!_nodeColorsOpen) return;
 
+            var bodyRect = EditorGUILayout.BeginVertical(Styles.SectionPadded);
+            if (Event.current.type == EventType.Repaint)
+                EditorGUI.DrawRect(bodyRect, Styles.PrimaryColor);
             using (new EditorGUI.DisabledScope(!settings.nodeColorEnabled))
             {
                 using (new EditorGUILayout.HorizontalScope())
@@ -294,7 +366,9 @@ namespace YGDR.Editor.Animation
                 DrawNodeColorRow("Entry Node",        ref settings.entryNodeColor,       new(0.20f, 0.55f, 0.20f, 1f), settings);
                 DrawNodeColorRow("Exit Node",         ref settings.exitNodeColor,        new(0.55f, 0.15f, 0.15f, 1f), settings);
                 DrawNodeColorRow("Any State",         ref settings.anyStateNodeColor,    new(0.15f, 0.40f, 0.50f, 1f), settings);
+                DrawNodeColorRow("Selection Highlight",     ref settings.nodeSelectionColor,   new(1f, 1f, 1f, 1f),           settings);
             }
+            EditorGUILayout.EndVertical();
         }
 
         /* Draws a labeled color field row with a Reset button that restores defaultColor and auto-saves. Shared by node color and transition overlay color rows. */
@@ -322,7 +396,7 @@ namespace YGDR.Editor.Animation
 
         void DrawTransitionDefaultsSection(AnimatorDefaultSettings settings)
         {
-            using (new EditorGUILayout.HorizontalScope(Styles.SectionHeader))
+            using (new EditorGUILayout.HorizontalScope(Styles.BehaviorSectionHeader))
             {
                 if (CursorBtn((_transitionDefaultsOpen ? "▼ " : "▶ ") + "Transition Defaults", Styles.HeaderLabel, GUILayout.ExpandWidth(false), GUILayout.Height(24)))
                     _transitionDefaultsOpen = !_transitionDefaultsOpen;
@@ -338,6 +412,9 @@ namespace YGDR.Editor.Animation
 
             if (!_transitionDefaultsOpen) return;
 
+            var bodyRect = EditorGUILayout.BeginVertical(Styles.SectionPadded);
+            if (Event.current.type == EventType.Repaint)
+                EditorGUI.DrawRect(bodyRect, Styles.PrimaryColor);
             using (new EditorGUI.DisabledScope(!settings.applyToTransitions))
             {
                 using (new EditorGUILayout.HorizontalScope())
@@ -408,13 +485,14 @@ namespace YGDR.Editor.Animation
                     if (EditorGUI.EndChangeCheck()) { settings.transSolo = solo; settings.Save(); }
                 }
             }
+            EditorGUILayout.EndVertical();
         }
 
         // ── State defaults ────────────────────────────────────────────────────
 
         void DrawStateDefaultsSection(AnimatorDefaultSettings settings)
         {
-            using (new EditorGUILayout.HorizontalScope(Styles.SectionHeader))
+            using (new EditorGUILayout.HorizontalScope(Styles.BehaviorSectionHeader))
             {
                 if (CursorBtn((_stateDefaultsOpen ? "▼ " : "▶ ") + "State Defaults", Styles.HeaderLabel, GUILayout.ExpandWidth(false), GUILayout.Height(24)))
                     _stateDefaultsOpen = !_stateDefaultsOpen;
@@ -430,6 +508,9 @@ namespace YGDR.Editor.Animation
 
             if (!_stateDefaultsOpen) return;
 
+            var bodyRect = EditorGUILayout.BeginVertical(Styles.SectionPadded);
+            if (Event.current.type == EventType.Repaint)
+                EditorGUI.DrawRect(bodyRect, Styles.PrimaryColor);
             using (new EditorGUI.DisabledScope(!settings.applyToStates))
             {
                 using (new EditorGUILayout.HorizontalScope())
@@ -446,21 +527,21 @@ namespace YGDR.Editor.Animation
                     EditorGUI.BeginChangeCheck();
                     float speed = EditorGUILayout.FloatField(settings.stateSpeed);
                     if (EditorGUI.EndChangeCheck()) { settings.stateSpeed = speed; settings.Save(); }
-                    GUILayout.FlexibleSpace();
-                    EditorGUI.BeginChangeCheck();
-                    bool speedParamActive = EditorGUILayout.ToggleLeft("Parameter", settings.stateSpeedParameterActive, GUILayout.Width(90));
-                    if (EditorGUI.EndChangeCheck()) { settings.stateSpeedParameterActive = speedParamActive; settings.Save(); }
                 }
 
                 using (new EditorGUILayout.HorizontalScope())
-                using (new EditorGUI.DisabledScope(!settings.stateSpeedParameterActive))
                 {
-                    EditorGUILayout.LabelField("Multiplier", GUILayout.Width(110));
+                    using (new EditorGUI.DisabledScope(!settings.stateSpeedParameterActive))
+                    {
+                        EditorGUILayout.LabelField("Multiplier", GUILayout.Width(110));
+                        EditorGUI.BeginChangeCheck();
+                        string speedParam = EditorGUILayout.TextField(settings.stateSpeedParameter);
+                        if (EditorGUI.EndChangeCheck()) { settings.stateSpeedParameter = speedParam; settings.Save(); }
+                        GUILayout.FlexibleSpace();
+                    }
                     EditorGUI.BeginChangeCheck();
-                    string speedParam = EditorGUILayout.TextField(settings.stateSpeedParameter);
-                    if (EditorGUI.EndChangeCheck()) { settings.stateSpeedParameter = speedParam; settings.Save(); }
-                    GUILayout.FlexibleSpace();
-                    GUILayout.Label("Parameter", GUILayout.Width(90));
+                    bool speedParamActive = EditorGUILayout.ToggleLeft("Parameter", settings.stateSpeedParameterActive, GUILayout.Width(90));
+                    if (EditorGUI.EndChangeCheck()) { settings.stateSpeedParameterActive = speedParamActive; settings.Save(); }
                 }
 
                 using (new EditorGUILayout.HorizontalScope())
@@ -504,17 +585,21 @@ namespace YGDR.Editor.Animation
 
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    EditorGUILayout.LabelField("Write Defaults", GUILayout.Width(110));
-                    EditorGUI.BeginChangeCheck();
-                    bool writeDefaults = EditorGUILayout.Toggle(settings.stateWriteDefaultValues, GUILayout.Width(16));
-                    if (EditorGUI.EndChangeCheck()) { settings.stateWriteDefaultValues = writeDefaults; settings.Save(); }
-                    GUILayout.FlexibleSpace();
-                    EditorGUILayout.LabelField("Foot IK", GUILayout.Width(55));
+                    EditorGUILayout.LabelField("Foot IK", GUILayout.Width(110));
                     EditorGUI.BeginChangeCheck();
                     bool footIK = EditorGUILayout.Toggle(settings.stateIKOnFeet, GUILayout.Width(16));
                     if (EditorGUI.EndChangeCheck()) { settings.stateIKOnFeet = footIK; settings.Save(); }
                 }
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.LabelField("Write Defaults", GUILayout.Width(110));
+                    EditorGUI.BeginChangeCheck();
+                    bool writeDefaults = EditorGUILayout.Toggle(settings.stateWriteDefaultValues, GUILayout.Width(16));
+                    if (EditorGUI.EndChangeCheck()) { settings.stateWriteDefaultValues = writeDefaults; settings.Save(); }
+                }
             }
+            EditorGUILayout.EndVertical();
         }
     }
 }
