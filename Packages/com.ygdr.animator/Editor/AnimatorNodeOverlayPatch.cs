@@ -427,6 +427,7 @@ namespace YGDR.Editor.Animation
     [HarmonyPriority(Priority.VeryLow)]
     internal static class PatchNodeStyles
     {
+
         static readonly Dictionary<string, GUIStyle> _styleCache = new();
         static readonly Dictionary<(Color, bool, bool, bool, Color), Texture2D> _texCache = new();
 
@@ -435,7 +436,7 @@ namespace YGDR.Editor.Animation
         static Texture2D _baseSubSM;
         static Texture2D _baseSubSMActive;
 
-        static (Color state, Color def, Color subSM, Color entry, Color exit, Color any, Color selection) _cachedColors;
+        static (Color state, Color def, Color subSM, Color entry, Color exit, Color any, Color selection, Color bt1D, Color bt2D, Color btDirect) _cachedColors;
         static bool _cached3DEnabled;
 
         [HarmonyTargetMethods]
@@ -458,7 +459,16 @@ namespace YGDR.Editor.Animation
 
                 if (ColorsChanged(settings)) Rebuild();
 
-                string styleKey = $"{styleName}|{color}|{on}";
+                BlendTreeType? resolvedBlendType = null;
+                if (PatchBlendTreeOnGraphGUI.InBlendTreeGUI && color == 0)
+                {
+                    if (PatchBlendTreeNodeGUI.InNodeGUI && PatchBlendTreeNodeGUI.CurrentBlendType.HasValue)
+                        resolvedBlendType = PatchBlendTreeNodeGUI.CurrentBlendType;
+                    else if (PatchBlendTreeOnGraphGUI._blendTypeQueue.Count > 0)
+                        resolvedBlendType = PatchBlendTreeOnGraphGUI._blendTypeQueue.Dequeue();
+                }
+                string blendTypeSuffix = resolvedBlendType.HasValue ? $"|bt{(int)resolvedBlendType.Value}" : "";
+                string styleKey = $"{styleName}|{color}|{on}{blendTypeSuffix}";
                 if (_styleCache.TryGetValue(styleKey, out var cached))
                 {
                     __result = cached;
@@ -466,7 +476,7 @@ namespace YGDR.Editor.Animation
                 }
 
                 bool isSubStateMachine = styleName == "node hex";
-                var nodeColor          = ResolveColor(styleName, color, settings);
+                var nodeColor          = ResolveColor(styleName, color, settings, resolvedBlendType);
                 var texKey             = (nodeColor, isSubStateMachine, on, settings.nodeColor3DEnabled, settings.nodeSelectionColor);
 
                 if (!_texCache.TryGetValue(texKey, out var nodeTexture))
@@ -491,9 +501,18 @@ namespace YGDR.Editor.Animation
         }
 
         /* Maps the style name and Unity color index to the corresponding user-configured node color from settings. */
-        static Color ResolveColor(string styleName, int colorIndex, AnimatorDefaultSettings settings)
+        static Color ResolveColor(string styleName, int colorIndex, AnimatorDefaultSettings settings, BlendTreeType? blendType = null)
         {
             if (styleName == "node hex") return settings.subStateMachineColor;
+            if (blendType.HasValue)
+            {
+                return blendType.Value switch
+                {
+                    BlendTreeType.Simple1D => settings.blendTree1DNodeColor,
+                    BlendTreeType.Direct   => settings.blendTreeDirectNodeColor,
+                    _                      => settings.blendTree2DNodeColor,
+                };
+            }
             return colorIndex switch
             {
                 5 => settings.defaultStateColor,
@@ -508,7 +527,8 @@ namespace YGDR.Editor.Animation
         static bool ColorsChanged(AnimatorDefaultSettings settings)
         {
             var current = (settings.stateNodeColor, settings.defaultStateColor, settings.subStateMachineColor,
-                           settings.entryNodeColor, settings.exitNodeColor, settings.anyStateNodeColor, settings.nodeSelectionColor);
+                           settings.entryNodeColor, settings.exitNodeColor, settings.anyStateNodeColor, settings.nodeSelectionColor,
+                           settings.blendTree1DNodeColor, settings.blendTree2DNodeColor, settings.blendTreeDirectNodeColor);
             if (_cachedColors == current && _cached3DEnabled == settings.nodeColor3DEnabled) return false;
             _cachedColors    = current;
             _cached3DEnabled = settings.nodeColor3DEnabled;
@@ -898,6 +918,7 @@ namespace YGDR.Editor.Animation
 
         const float LabelOffsetAbove = 10f;
         const float LabelOffsetBelow = -25f;
+        const float LabelOffsetSelfTransition = 40f;
 
         static GUIStyle _labelStyle;
         static GUIStyle LabelStyle => _labelStyle ??= new GUIStyle(EditorStyles.miniLabel)
@@ -921,6 +942,7 @@ namespace YGDR.Editor.Animation
         static FieldInfo         _labelTransitionsField;
         static FieldInfo         _labelTransitionContextField;
         static EditorWindow      _cachedAnimatorWindow;
+        static Func<Rect>        _getVisibleRect;
 
         [HarmonyTargetMethod]
         static MethodBase TargetMethod() =>
@@ -1108,17 +1130,33 @@ namespace YGDR.Editor.Animation
             return intValue.ToString();
         }
 
-        /* Draws text rotated to follow the edge direction at mid-point, offsetting above or below the line based on the horizontal component of dir. */
+        /* Draws text rotated to follow the edge direction at mid-point, offsetting above or below the line based on the horizontal component of dir. Self-transitions (zero dir) use LabelOffsetBelow to place the label clear of the node. */
         static void DrawLabel(Vector2 mid, Vector2 dir, string text)
         {
-            float yOffset = dir.x >= 0f ? LabelOffsetAbove : LabelOffsetBelow;
+            bool isSelfTransition = dir.sqrMagnitude < 0.001f;
+            float yOffset = isSelfTransition ? LabelOffsetSelfTransition : (dir.x >= 0f ? LabelOffsetAbove : LabelOffsetBelow);
             float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
             if (angle > 90f)  angle -= 180f;
             if (angle < -90f) angle += 180f;
+
+            if (_getVisibleRect == null)
+            {
+                var guiClipType = typeof(GUI).Assembly.GetType("UnityEngine.GUIClip");
+                var prop = guiClipType?.GetProperty("visibleRect",
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+                _getVisibleRect = prop != null
+                    ? (Func<Rect>)Delegate.CreateDelegate(typeof(Func<Rect>), prop.GetGetMethod(nonPublic: true))
+                    : static () => new Rect(0, 0, 9999, 9999);
+            }
+            var clipRect = _getVisibleRect();
+
+            var localMid = mid - clipRect.position;
             var matrix = GUI.matrix;
-            GUIUtility.RotateAroundPivot(angle, mid);
-            GUI.Label(new Rect(mid.x - 75f, mid.y + yOffset, 150f, 14f), text, LabelStyle);
+            GUI.BeginClip(clipRect);
+            GUIUtility.RotateAroundPivot(angle, localMid);
+            GUI.Label(new Rect(localMid.x - 75f, localMid.y + yOffset, 150f, 14f), text, LabelStyle);
             GUI.matrix = matrix;
+            GUI.EndClip();
         }
 
         /* Returns true if the source slot of edge belongs to an EntryNode, used to skip entry transitions that should not be re-coloured. */

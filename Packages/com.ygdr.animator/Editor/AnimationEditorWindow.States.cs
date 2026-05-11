@@ -424,8 +424,10 @@ void DrawStateRows()
         {
             internal readonly VRC_AvatarParameterDriver.Parameter param;
             internal readonly int index;
-            internal DriverParamEntry(VRC_AvatarParameterDriver.Parameter param, int index)
-            { this.param = param; this.index = index; }
+            internal readonly bool hasMixedValues;
+            internal readonly bool hasMixedTypes;
+            internal DriverParamEntry(VRC_AvatarParameterDriver.Parameter param, int index, bool hasMixedValues, bool hasMixedTypes)
+            { this.param = param; this.index = index; this.hasMixedValues = hasMixedValues; this.hasMixedTypes = hasMixedTypes; }
         }
 
         List<DriverParamEntry> GetSharedDriverParams()
@@ -442,10 +444,26 @@ void DrawStateRows()
                 bool sharedAcrossAll = _selectedStates.All(state =>
                 {
                     var driver = GetDriverForState(state);
-                    return driver != null && driver.parameters.Any(parameter => DriverParamsMatch(parameter, param));
+                    return driver != null && driver.parameters.Any(parameter => parameter.name == param.name);
                 });
-                if (sharedAcrossAll)
-                    result.Add(new DriverParamEntry(param, i));
+                if (!sharedAcrossAll) continue;
+                bool hasMixedTypes = !_selectedStates.All(state =>
+                {
+                    var driver = GetDriverForState(state);
+                    if (driver == null) return false;
+                    foreach (var parameter in driver.parameters)
+                        if (parameter.name == param.name) return parameter.type == param.type;
+                    return false;
+                });
+                bool hasMixedValues = hasMixedTypes || !_selectedStates.All(state =>
+                {
+                    var driver = GetDriverForState(state);
+                    if (driver == null) return false;
+                    foreach (var parameter in driver.parameters)
+                        if (parameter.name == param.name) return DriverParamsMatch(parameter, param);
+                    return false;
+                });
+                result.Add(new DriverParamEntry(param, i, hasMixedValues, hasMixedTypes));
             }
             return result;
         }
@@ -481,11 +499,14 @@ void DrawStateRows()
             var changeLabels = isBool ? new[] { "Set", "Random" } : new[] { "Set", "Add", "Random" };
 
             int typeIndex = Mathf.Max(0, Array.IndexOf(changeTypes, param.type));
+            EditorGUI.showMixedValue = entry.hasMixedTypes;
             EditorGUI.BeginChangeCheck();
             int newTypeIndex = EditorGUI.Popup(typeRect, typeIndex, changeLabels);
             if (EditorGUI.EndChangeCheck())
                 ReplaceDriverParam(capturedEntry, CloneParam(capturedEntry.param, type: changeTypes[newTypeIndex]));
+            EditorGUI.showMixedValue = false;
 
+            EditorGUI.showMixedValue = entry.hasMixedValues;
             if (isBool && param.type == VRC_AvatarParameterDriver.ChangeType.Set)
             {
                 float toggleWidth = EditorGUIUtility.singleLineHeight;
@@ -530,6 +551,7 @@ void DrawStateRows()
                 if (EditorGUI.EndChangeCheck())
                     ReplaceDriverParam(capturedEntry, CloneParam(capturedEntry.param, value: newValue));
             }
+            EditorGUI.showMixedValue = false;
 
             if (CursorBtn(removeRect, "−", Styles.CondBtn))
                 RemoveDriverParam(entry);
@@ -554,17 +576,34 @@ void DrawStateRows()
             chance   = chance   ?? original.chance
         };
 
-        /* Replaces the parameter at entry's position across all selected states' drivers with replacement, matched by DriverParamsMatch. */
-        void ReplaceDriverParam(DriverParamEntry entry, VRC_AvatarParameterDriver.Parameter replacement)
+        static VRC_AvatarParameterDriver.Parameter DeepCloneParam(
+            VRC_AvatarParameterDriver.Parameter original)
+        => new VRC_AvatarParameterDriver.Parameter
+        {
+            name     = original.name,
+            type     = original.type,
+            value    = original.value,
+            valueMin = original.valueMin,
+            valueMax = original.valueMax,
+            chance   = original.chance
+        };
+
+        void ReplaceDriverParam(
+            DriverParamEntry entry,
+            VRC_AvatarParameterDriver.Parameter replacement)
         {
             foreach (var state in _selectedStates)
             {
                 var driver = GetDriverForState(state);
-                if (driver == null) continue;
-                int parameterIndex = FindDriverParamIndex(driver, entry.param);
-                if (parameterIndex < 0) continue;
+                if (driver == null)
+                    continue;
+
+                int parameterIndex = FindDriverParamIndex(driver, entry.param, entry.index);
+                if (parameterIndex < 0)
+                    continue;
+
                 Undo.RecordObject(driver, "Edit Driver Parameter");
-                driver.parameters[parameterIndex] = replacement;
+                driver.parameters[parameterIndex] = DeepCloneParam(replacement);
                 EditorUtility.SetDirty(driver);
             }
         }
@@ -576,7 +615,7 @@ void DrawStateRows()
             {
                 var driver = GetDriverForState(state);
                 if (driver == null) continue;
-                int parameterIndex = FindDriverParamIndex(driver, entry.param);
+                int parameterIndex = FindDriverParamIndex(driver, entry.param, entry.index);
                 if (parameterIndex < 0) continue;
                 Undo.RecordObject(driver, "Remove Driver Parameter");
                 driver.parameters.RemoveAt(parameterIndex);
@@ -593,6 +632,7 @@ void DrawStateRows()
         void AddDriverParam()
         {
             string firstParam = _controller?.parameters.Length > 0 ? _controller.parameters[0].name : string.Empty;
+            if (_selectedStates.Length > 1) EnsureUniqueDrivers();
             foreach (var state in _selectedStates)
             {
                 var driver = GetOrCreateDriver(state);
@@ -603,6 +643,62 @@ void DrawStateRows()
                     name  = firstParam,
                     value = 0f
                 });
+                EditorUtility.SetDirty(driver);
+            }
+        }
+
+        /* Detects shared VRCAvatarParameterDriver instances across selected states (caused by Unity
+           state duplication sharing C++ behaviours arrays). Breaks sharing by destroying all drivers,
+           calling SaveAssets to write independent empty behaviours to disk (reimport separates the
+           C++ arrays), then recreating unique drivers and restoring the saved parameter data. */
+        void EnsureUniqueDrivers()
+        {
+            var seenIds = new HashSet<int>();
+            bool needsRebuild = false;
+            foreach (var state in _selectedStates)
+            {
+                var driver = GetDriverForState(state);
+                if (driver == null || !seenIds.Add(driver.GetInstanceID()))
+                    needsRebuild = true;
+            }
+            if (!needsRebuild) return;
+
+            var savedParameters  = new Dictionary<AnimatorState, List<VRC_AvatarParameterDriver.Parameter>>();
+            var savedLocalOnly   = new Dictionary<AnimatorState, bool>();
+            var savedDebugString = new Dictionary<AnimatorState, string>();
+            foreach (var state in _selectedStates)
+            {
+                var driver = GetDriverForState(state);
+                if (driver == null) continue;
+                savedParameters[state]  = new List<VRC_AvatarParameterDriver.Parameter>(driver.parameters);
+                savedLocalOnly[state]   = driver.localOnly;
+                savedDebugString[state] = driver.debugString ?? string.Empty;
+            }
+
+            var destroyedIds = new HashSet<int>();
+            foreach (var state in _selectedStates)
+            {
+                var driver = GetDriverForState(state);
+                if (driver == null) continue;
+                Undo.RegisterCompleteObjectUndo(state, "Add Driver Parameter");
+                state.behaviours = state.behaviours.Where(b => b != driver).ToArray();
+                EditorUtility.SetDirty(state);
+                if (destroyedIds.Add(driver.GetInstanceID()))
+                    Undo.DestroyObjectImmediate(driver);
+            }
+
+            // Flush empty behaviours to disk — reimport gives each state an independent
+            // C++ behaviours array, permanently breaking the Unity-level sharing.
+            AssetDatabase.SaveAssets();
+
+            foreach (var state in _selectedStates)
+            {
+                var driver = GetOrCreateDriver(state);
+                if (!savedParameters.ContainsKey(state)) continue;
+                Undo.RecordObject(driver, "Add Driver Parameter");
+                driver.parameters  = savedParameters[state];
+                driver.localOnly   = savedLocalOnly[state];
+                driver.debugString = savedDebugString[state];
                 EditorUtility.SetDirty(driver);
             }
         }
@@ -620,12 +716,16 @@ void DrawStateRows()
             }
         }
 
-        /* Returns the index of the first parameter in driver.parameters that matches target via DriverParamsMatch, or -1 if not found. */
-        static int FindDriverParamIndex(VRCAvatarParameterDriver driver, VRC_AvatarParameterDriver.Parameter target)
+        /* Returns the index of the parameter in driver.parameters matching target.
+           Uses indexHint first (positional match by name) — handles duplicate-name params correctly.
+           Falls back to first name match if hint is out of range or name differs. */
+        static int FindDriverParamIndex(VRCAvatarParameterDriver driver, VRC_AvatarParameterDriver.Parameter target, int indexHint = -1)
         {
             var parameters = driver.parameters;
+            if (indexHint >= 0 && indexHint < parameters.Count && parameters[indexHint].name == target.name)
+                return indexHint;
             for (int i = 0; i < parameters.Count; i++)
-                if (DriverParamsMatch(parameters[i], target)) return i;
+                if (parameters[i].name == target.name) return i;
             return -1;
         }
 

@@ -12,12 +12,15 @@ namespace YGDR.Editor.Animation
         const string PrefsKey = "YGDR.AnimatorTools.Settings";
 
         // Window behavior
-        [SerializeField] internal bool fixLayerScrollReset  = true;
         [SerializeField] internal bool scrollToNewParameter = true;
         [SerializeField] internal bool defaultLayerWeight1  = true;
+        [SerializeField] internal bool showGraphFooter       = true;
 
         // Parameter list overlays
-        [SerializeField] internal bool  showParamTypeLabels  = true;
+        [SerializeField] internal bool  showParamTypeIcons   = true;
+        [SerializeField] internal bool  showParamVrcIcons    = true;
+        [SerializeField] internal bool  showParamAapIcons    = true;
+        [SerializeField] internal bool  showParamVrcComponentIcons = true;
         [SerializeField] internal Color paramColorFloat   = new Color(0.35f, 0.75f, 0.35f, 1f);
         [SerializeField] internal Color paramColorInt     = new Color(0.35f, 0.60f, 1.00f, 1f);
         [SerializeField] internal Color paramColorBool    = new Color(1.00f, 0.55f, 0.20f, 1f);
@@ -66,6 +69,7 @@ namespace YGDR.Editor.Animation
         [SerializeField] internal Color  graphGridColorMinor      = new Color(0.22f, 0.22f, 0.22f, 1f);
         [SerializeField] internal float  graphGridScalingMajor    = 1f;
         [SerializeField] internal int    graphGridDivisorMinor    = 5;
+        [SerializeField] internal bool   graphGridDrawLines       = true;
 
         internal void ResetGraphGrid()
         {
@@ -74,28 +78,35 @@ namespace YGDR.Editor.Animation
             graphGridColorMinor      = new Color(0.22f, 0.22f, 0.22f, 1f);
             graphGridScalingMajor    = 1f;
             graphGridDivisorMinor    = 5;
+            graphGridDrawLines       = true;
         }
 
         // Node colors
         [SerializeField] internal bool  nodeColorEnabled      = false;
         [SerializeField] internal bool  nodeColor3DEnabled    = false;
+        [SerializeField] internal Color nodeSelectionColor      = new(1f, 1f, 1f, 1f);
         [SerializeField] internal Color stateNodeColor        = new(0.30f, 0.30f, 0.30f, 1f);
         [SerializeField] internal Color defaultStateColor     = new(0.60f, 0.35f, 0.10f, 1f);
         [SerializeField] internal Color subStateMachineColor  = new(0.35f, 0.25f, 0.50f, 1f);
         [SerializeField] internal Color entryNodeColor        = new(0.20f, 0.55f, 0.20f, 1f);
         [SerializeField] internal Color exitNodeColor         = new(0.55f, 0.15f, 0.15f, 1f);
         [SerializeField] internal Color anyStateNodeColor     = new(0.15f, 0.40f, 0.50f, 1f);
-        [SerializeField] internal Color nodeSelectionColor   = new(1f, 1f, 1f, 1f);
+        [SerializeField] internal Color blendTreeDirectNodeColor = new(0.55f, 0.25f, 0.45f, 1f);
+        [SerializeField] internal Color blendTree1DNodeColor     = new(0.20f, 0.45f, 0.60f, 1f);
+        [SerializeField] internal Color blendTree2DNodeColor     = new(0.25f, 0.55f, 0.35f, 1f);
 
         internal void ResetNodeColors()
         {
-            stateNodeColor       = new(0.30f, 0.30f, 0.30f, 1f);
-            defaultStateColor    = new(0.60f, 0.35f, 0.10f, 1f);
-            subStateMachineColor = new(0.35f, 0.25f, 0.50f, 1f);
-            entryNodeColor       = new(0.20f, 0.55f, 0.20f, 1f);
-            exitNodeColor        = new(0.55f, 0.15f, 0.15f, 1f);
-            anyStateNodeColor    = new(0.15f, 0.40f, 0.50f, 1f);
-            nodeSelectionColor   = new(1f, 1f, 1f, 1f);
+            nodeSelectionColor      = new(1f, 1f, 1f, 1f);
+            stateNodeColor          = new(0.30f, 0.30f, 0.30f, 1f);
+            defaultStateColor       = new(0.60f, 0.35f, 0.10f, 1f);
+            subStateMachineColor    = new(0.35f, 0.25f, 0.50f, 1f);
+            entryNodeColor          = new(0.20f, 0.55f, 0.20f, 1f);
+            exitNodeColor           = new(0.55f, 0.15f, 0.15f, 1f);
+            anyStateNodeColor       = new(0.15f, 0.40f, 0.50f, 1f);
+            blendTreeDirectNodeColor = new(0.55f, 0.25f, 0.45f, 1f);
+            blendTree1DNodeColor    = new(0.20f, 0.45f, 0.60f, 1f);
+            blendTree2DNodeColor    = new(0.25f, 0.55f, 0.35f, 1f);
         }
 
         // Editor palette
@@ -126,6 +137,14 @@ namespace YGDR.Editor.Animation
         [SerializeField] internal bool transMute = false;
         [SerializeField] internal bool transSolo = false;
         [SerializeField] internal bool transCanTransitionToSelf = false;
+
+        // Miscellaneous
+        [SerializeField] internal bool wdIncludeBlendTreeStates  = false;
+        [SerializeField] internal bool preventLayerScroll        = true;
+        [SerializeField] internal bool preventParameterScroll    = true;
+        [SerializeField] internal bool clipMenuHierarchyEnabled  = true;
+        [SerializeField] internal bool layerTemplateButtonEnabled = true;
+        [SerializeField] internal bool parameterAddMenuEnabled   = true;
 
         // State defaults
         [SerializeField] internal bool applyToStates = true;

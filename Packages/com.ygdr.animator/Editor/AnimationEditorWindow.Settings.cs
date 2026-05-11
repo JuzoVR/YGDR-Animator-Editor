@@ -15,6 +15,7 @@ namespace YGDR.Editor.Animation
         bool _nodeColorsOpen;
         bool _transitionDefaultsOpen;
         bool _stateDefaultsOpen;
+        bool _miscOpen;
 
         void DrawSettingsTab()
         {
@@ -32,6 +33,8 @@ namespace YGDR.Editor.Animation
             DrawTransitionDefaultsSection(settings);
             EditorGUILayout.Space(4);
             DrawStateDefaultsSection(settings);
+            EditorGUILayout.Space(4);
+            DrawMiscellaneousSection(settings);
         }
 
         // ── Interface palette ─────────────────────────────────────────────────
@@ -56,6 +59,19 @@ namespace YGDR.Editor.Animation
             var bodyRect = EditorGUILayout.BeginVertical(Styles.SectionPadded);
             if (Event.current.type == EventType.Repaint)
                 EditorGUI.DrawRect(bodyRect, Styles.PrimaryColor);
+            float lineHeight = EditorGUIUtility.singleLineHeight;
+            var ifRow1Rect = EditorGUILayout.GetControlRect(false, lineHeight);
+            var ifRow2Rect = EditorGUILayout.GetControlRect(false, lineHeight);
+            float ifColWidth = ifRow1Rect.width / 4f;
+
+            DrawOverlayToggle(new Rect(ifRow1Rect.x + 0 * ifColWidth, ifRow1Rect.y, ifColWidth, lineHeight), "Layer Indicators", ref settings.showLayerWDIndicator, settings);
+            DrawOverlayToggle(new Rect(ifRow1Rect.x + 1 * ifColWidth, ifRow1Rect.y, ifColWidth, lineHeight), "Type Icons",       ref settings.showParamTypeIcons,   settings);
+            DrawOverlayToggle(new Rect(ifRow1Rect.x + 2 * ifColWidth, ifRow1Rect.y, ifColWidth, lineHeight), "VRC Icons",        ref settings.showParamVrcIcons,    settings);
+            DrawOverlayToggle(new Rect(ifRow1Rect.x + 3 * ifColWidth, ifRow1Rect.y, ifColWidth, lineHeight), "AAP Icons",        ref settings.showParamAapIcons,    settings);
+
+            DrawOverlayToggle(new Rect(ifRow2Rect.x + 0 * ifColWidth, ifRow2Rect.y, ifColWidth, lineHeight), "Graph Footer",     ref settings.showGraphFooter,      settings);
+            DrawOverlayToggle(new Rect(ifRow2Rect.x + 1 * ifColWidth, ifRow2Rect.y, ifColWidth, lineHeight), "VRC Comp Icons", ref settings.showParamVrcComponentIcons, settings);
+            EditorGUILayout.Space(6);
             DrawPaletteColorRow("Primary",   ref settings.paletteColorPrimary,   AnimatorDefaultSettings.DefaultPrimary,   settings);
             DrawPaletteColorRow("Secondary", ref settings.paletteColorSecondary, AnimatorDefaultSettings.DefaultSecondary, settings);
             DrawPaletteColorRow("Accent",    ref settings.paletteColorAccent,    AnimatorDefaultSettings.DefaultAccent,    settings);
@@ -132,17 +148,20 @@ namespace YGDR.Editor.Animation
                     EditorGUI.BeginChangeCheck();
                     bool imageSelected = EditorGUILayout.ToggleLeft("Image", settings.graphGridUseImage, GUILayout.Width(55));
                     if (EditorGUI.EndChangeCheck() && imageSelected) { settings.graphGridUseImage = true; settings.Save(); }
-                }
 
-                if (!settings.graphGridUseImage)
-                {
-                    DrawGraphGridColorRow("  Color", ref settings.graphGridBackgroundColor, new Color(0.18f, 0.18f, 0.18f, 1f), settings);
-                }
-                else
-                {
-                    using (new EditorGUILayout.HorizontalScope())
+                    if (!settings.graphGridUseImage)
                     {
-                        EditorGUILayout.LabelField("  Image", GUILayout.Width(110));
+                        EditorGUI.BeginChangeCheck();
+                        var newColor = EditorGUILayout.ColorField(GUIContent.none, settings.graphGridBackgroundColor, true, false, false);
+                        if (EditorGUI.EndChangeCheck()) { settings.graphGridBackgroundColor = newColor; settings.Save(); }
+                        if (CursorBtn("Reset", Styles.IconBtn, GUILayout.Width(48)))
+                        {
+                            settings.graphGridBackgroundColor = new Color(0.18f, 0.18f, 0.18f, 1f);
+                            settings.Save();
+                        }
+                    }
+                    else
+                    {
                         EditorGUI.BeginChangeCheck();
                         var texture = (UnityEngine.Texture2D)EditorGUILayout.ObjectField(settings.graphGridBackgroundImage, typeof(UnityEngine.Texture2D), false, GUILayout.ExpandWidth(true));
                         if (EditorGUI.EndChangeCheck()) { settings.graphGridBackgroundImage = texture; settings.Save(); }
@@ -152,23 +171,34 @@ namespace YGDR.Editor.Animation
                     }
                 }
 
-                DrawGraphGridColorRow("Major Grid",  ref settings.graphGridColorMajor,      new Color(0.30f, 0.30f, 0.30f, 1f), settings);
-                DrawGraphGridColorRow("Minor Grid",  ref settings.graphGridColorMinor,      new Color(0.22f, 0.22f, 0.22f, 1f), settings);
-
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    EditorGUILayout.LabelField("Grid Scale", GUILayout.Width(110));
+                    EditorGUILayout.LabelField("Grid", GUILayout.Width(110));
                     EditorGUI.BeginChangeCheck();
-                    float scale = EditorGUILayout.Slider(settings.graphGridScalingMajor, 0.25f, 3f);
-                    if (EditorGUI.EndChangeCheck()) { settings.graphGridScalingMajor = scale; settings.Save(); }
+                    bool drawLines = EditorGUILayout.ToggleLeft("", settings.graphGridDrawLines, GUILayout.Width(20));
+                    if (EditorGUI.EndChangeCheck()) { settings.graphGridDrawLines = drawLines; settings.Save(); }
                 }
 
-                using (new EditorGUILayout.HorizontalScope())
+                using (new EditorGUI.DisabledScope(!settings.graphGridDrawLines))
                 {
-                    EditorGUILayout.LabelField("Minor Divisions", GUILayout.Width(110));
-                    EditorGUI.BeginChangeCheck();
-                    int div = EditorGUILayout.IntSlider(settings.graphGridDivisorMinor, 2, 10);
-                    if (EditorGUI.EndChangeCheck()) { settings.graphGridDivisorMinor = div; settings.Save(); }
+                    DrawGraphGridColorRow("Major Grid", ref settings.graphGridColorMajor, new Color(0.30f, 0.30f, 0.30f, 1f), settings);
+                    DrawGraphGridColorRow("Minor Grid", ref settings.graphGridColorMinor, new Color(0.22f, 0.22f, 0.22f, 1f), settings);
+
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        EditorGUILayout.LabelField("Grid Scale", GUILayout.Width(110));
+                        EditorGUI.BeginChangeCheck();
+                        float scale = EditorGUILayout.Slider(settings.graphGridScalingMajor, 0.25f, 3f);
+                        if (EditorGUI.EndChangeCheck()) { settings.graphGridScalingMajor = scale; settings.Save(); }
+                    }
+
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        EditorGUILayout.LabelField("Minor Divisions", GUILayout.Width(110));
+                        EditorGUI.BeginChangeCheck();
+                        int div = EditorGUILayout.IntSlider(settings.graphGridDivisorMinor, 2, 10);
+                        if (EditorGUI.EndChangeCheck()) { settings.graphGridDivisorMinor = div; settings.Save(); }
+                    }
                 }
             }
             EditorGUILayout.EndVertical();
@@ -216,46 +246,23 @@ namespace YGDR.Editor.Animation
                 EditorGUI.DrawRect(bodyRect, Styles.PrimaryColor);
             using (new EditorGUI.DisabledScope(!settings.overlayEnabled))
             {
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    EditorGUI.BeginChangeCheck();
-                    bool showEmpty = EditorGUILayout.ToggleLeft("! Empty", settings.overlayShowEmpty, GUILayout.Width(65));
-                    if (EditorGUI.EndChangeCheck()) { settings.overlayShowEmpty = showEmpty; settings.Save(); }
-                    GUILayout.Space(6);
-                    EditorGUI.BeginChangeCheck();
-                    bool showLoop = EditorGUILayout.ToggleLeft("↻ Loop", settings.overlayShowLoop, GUILayout.Width(65));
-                    if (EditorGUI.EndChangeCheck()) { settings.overlayShowLoop = showLoop; settings.Save(); }
-                    GUILayout.Space(6);
-                    EditorGUI.BeginChangeCheck();
-                    bool showWD = EditorGUILayout.ToggleLeft("WD", settings.overlayShowWD, GUILayout.Width(42));
-                    if (EditorGUI.EndChangeCheck()) { settings.overlayShowWD = showWD; settings.Save(); }
-                    GUILayout.Space(6);
-                    EditorGUI.BeginChangeCheck();
-                    bool showB = EditorGUILayout.ToggleLeft("Behaviors", settings.overlayShowB, GUILayout.Width(90));
-                    if (EditorGUI.EndChangeCheck()) { settings.overlayShowB = showB; settings.Save(); }
-                }
+                float lineHeight = EditorGUIUtility.singleLineHeight;
+                var row1Rect = EditorGUILayout.GetControlRect(false, lineHeight);
+                var row2Rect = EditorGUILayout.GetControlRect(false, lineHeight);
+                float colWidth = row1Rect.width / 4f;
 
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    EditorGUI.BeginChangeCheck();
-                    bool showSpeed = EditorGUILayout.ToggleLeft("Speed", settings.overlayShowSpeed, GUILayout.Width(72));
-                    if (EditorGUI.EndChangeCheck()) { settings.overlayShowSpeed = showSpeed; settings.Save(); }
-                    GUILayout.Space(6);
-                    EditorGUI.BeginChangeCheck();
-                    bool showMotion = EditorGUILayout.ToggleLeft("Motion", settings.overlayShowMotion, GUILayout.Width(78));
-                    if (EditorGUI.EndChangeCheck()) { settings.overlayShowMotion = showMotion; settings.Save(); }
-                    GUILayout.Space(6);
-                    EditorGUI.BeginChangeCheck();
-                    bool showMotionName = EditorGUILayout.ToggleLeft("Clip Name", settings.overlayShowMotionName, GUILayout.Width(85));
-                    if (EditorGUI.EndChangeCheck()) { settings.overlayShowMotionName = showMotionName; settings.Save(); }
-                    GUILayout.Space(6);
-                    EditorGUI.BeginChangeCheck();
-                    bool showCoords = EditorGUILayout.ToggleLeft("Coords", settings.overlayShowCoords, GUILayout.Width(60));
-                    if (EditorGUI.EndChangeCheck()) { settings.overlayShowCoords = showCoords; settings.Save(); }
-                }
+                DrawOverlayToggle(new Rect(row1Rect.x + 0 * colWidth, row1Rect.y, colWidth, lineHeight), "! Empty",   ref settings.overlayShowEmpty,      settings);
+                DrawOverlayToggle(new Rect(row1Rect.x + 1 * colWidth, row1Rect.y, colWidth, lineHeight), "↻ Loop",    ref settings.overlayShowLoop,       settings);
+                DrawOverlayToggle(new Rect(row1Rect.x + 2 * colWidth, row1Rect.y, colWidth, lineHeight), "WD",        ref settings.overlayShowWD,         settings);
+                DrawOverlayToggle(new Rect(row1Rect.x + 3 * colWidth, row1Rect.y, colWidth, lineHeight), "Behaviors", ref settings.overlayShowB,          settings);
 
-                DrawNodeColorRow("Active",   ref settings.overlayActiveColor,   Color.white,                          settings);
-                DrawNodeColorRow("Inactive", ref settings.overlayInactiveColor, new Color(0.45f, 0.45f, 0.45f, 1f),  settings);
+                DrawOverlayToggle(new Rect(row2Rect.x + 0 * colWidth, row2Rect.y, colWidth, lineHeight), "Speed",     ref settings.overlayShowSpeed,      settings);
+                DrawOverlayToggle(new Rect(row2Rect.x + 1 * colWidth, row2Rect.y, colWidth, lineHeight), "Motion",    ref settings.overlayShowMotion,     settings);
+                DrawOverlayToggle(new Rect(row2Rect.x + 2 * colWidth, row2Rect.y, colWidth, lineHeight), "Clip Name", ref settings.overlayShowMotionName, settings);
+                DrawOverlayToggle(new Rect(row2Rect.x + 3 * colWidth, row2Rect.y, colWidth, lineHeight), "Coords",    ref settings.overlayShowCoords,     settings);
+                EditorGUILayout.Space(4);
+                DrawNodeColorRow("Active",   ref settings.overlayActiveColor,   Color.white,                         settings);
+                DrawNodeColorRow("Inactive", ref settings.overlayInactiveColor, new Color(0.45f, 0.45f, 0.45f, 1f), settings);
             }
             EditorGUILayout.EndVertical();
         }
@@ -360,15 +367,28 @@ namespace YGDR.Editor.Animation
                         PatchNodeStyles.Invalidate();
                     }
                 }
+                DrawNodeColorRow("Selection Highlight",     ref settings.nodeSelectionColor,      new(1f, 1f, 1f, 1f), settings);
+                EditorGUILayout.Space(8);
                 DrawNodeColorRow("State Nodes",       ref settings.stateNodeColor,       new(0.30f, 0.30f, 0.30f, 1f), settings);
                 DrawNodeColorRow("Default State",     ref settings.defaultStateColor,    new(0.60f, 0.35f, 0.10f, 1f), settings);
                 DrawNodeColorRow("Sub State Machine", ref settings.subStateMachineColor, new(0.35f, 0.25f, 0.50f, 1f), settings);
                 DrawNodeColorRow("Entry Node",        ref settings.entryNodeColor,       new(0.20f, 0.55f, 0.20f, 1f), settings);
                 DrawNodeColorRow("Exit Node",         ref settings.exitNodeColor,        new(0.55f, 0.15f, 0.15f, 1f), settings);
                 DrawNodeColorRow("Any State",         ref settings.anyStateNodeColor,    new(0.15f, 0.40f, 0.50f, 1f), settings);
-                DrawNodeColorRow("Selection Highlight",     ref settings.nodeSelectionColor,   new(1f, 1f, 1f, 1f),           settings);
+                EditorGUILayout.Space(8);
+                DrawNodeColorRow("Blend Tree Direct",       ref settings.blendTreeDirectNodeColor, new(0.55f, 0.25f, 0.45f, 1f), settings);
+                DrawNodeColorRow("Blend Tree 1D",           ref settings.blendTree1DNodeColor,    new(0.20f, 0.45f, 0.60f, 1f),  settings);
+                DrawNodeColorRow("Blend Tree 2D",           ref settings.blendTree2DNodeColor,    new(0.25f, 0.55f, 0.35f, 1f),  settings);
             }
             EditorGUILayout.EndVertical();
+        }
+
+        static void DrawOverlayToggle(Rect rect, string label, ref bool value, AnimatorDefaultSettings settings)
+        {
+            EditorGUI.BeginChangeCheck();
+            bool newValue = EditorGUI.ToggleLeft(rect, label, value);
+            if (EditorGUI.EndChangeCheck()) { value = newValue; settings.Save(); }
+            EditorGUIUtility.AddCursorRect(rect, MouseCursor.Link);
         }
 
         /* Draws a labeled color field row with a Reset button that restores defaultColor and auto-saves. Shared by node color and transition overlay color rows. */
@@ -599,6 +619,39 @@ namespace YGDR.Editor.Animation
                     if (EditorGUI.EndChangeCheck()) { settings.stateWriteDefaultValues = writeDefaults; settings.Save(); }
                 }
             }
+            EditorGUILayout.EndVertical();
+        }
+        // ── Miscellaneous ─────────────────────────────────────────────────────
+
+        void DrawMiscellaneousSection(AnimatorDefaultSettings settings)
+        {
+            using (new EditorGUILayout.HorizontalScope(Styles.BehaviorSectionHeader))
+            {
+                if (CursorBtn((_miscOpen ? "▼ " : "▶ ") + "Miscellaneous", Styles.HeaderLabel, GUILayout.ExpandWidth(false), GUILayout.Height(24)))
+                    _miscOpen = !_miscOpen;
+                GUILayout.FlexibleSpace();
+            }
+
+            if (!_miscOpen) return;
+
+            var bodyRect = EditorGUILayout.BeginVertical(Styles.SectionPadded);
+            if (Event.current.type == EventType.Repaint)
+                EditorGUI.DrawRect(bodyRect, Styles.PrimaryColor);
+
+            float miscLineHeight = EditorGUIUtility.singleLineHeight;
+            var miscRow1Rect = EditorGUILayout.GetControlRect(false, miscLineHeight);
+            var miscRow2Rect = EditorGUILayout.GetControlRect(false, miscLineHeight);
+            float miscColWidth = miscRow1Rect.width / 4f;
+
+            DrawOverlayToggle(new Rect(miscRow1Rect.x + 0 * miscColWidth, miscRow1Rect.y, miscColWidth, miscLineHeight), "WD Blend Trees",       ref settings.wdIncludeBlendTreeStates,   settings);
+            DrawOverlayToggle(new Rect(miscRow1Rect.x + 1 * miscColWidth, miscRow1Rect.y, miscColWidth, miscLineHeight), "Prevent Layer Scroll",  ref settings.preventLayerScroll,         settings);
+            DrawOverlayToggle(new Rect(miscRow1Rect.x + 2 * miscColWidth, miscRow1Rect.y, miscColWidth, miscLineHeight), "Prevent Param Scroll",  ref settings.preventParameterScroll,     settings);
+            DrawOverlayToggle(new Rect(miscRow1Rect.x + 3 * miscColWidth, miscRow1Rect.y, miscColWidth, miscLineHeight), "Default Weight 1",      ref settings.defaultLayerWeight1,        settings);
+
+            DrawOverlayToggle(new Rect(miscRow2Rect.x + 0 * miscColWidth, miscRow2Rect.y, miscColWidth, miscLineHeight), "Clip Menu Hierarchy",   ref settings.clipMenuHierarchyEnabled,   settings);
+            DrawOverlayToggle(new Rect(miscRow2Rect.x + 1 * miscColWidth, miscRow2Rect.y, miscColWidth, miscLineHeight), "Layer Templates",        ref settings.layerTemplateButtonEnabled, settings);
+            DrawOverlayToggle(new Rect(miscRow2Rect.x + 2 * miscColWidth, miscRow2Rect.y, miscColWidth, miscLineHeight), "Param Add Menu",         ref settings.parameterAddMenuEnabled,    settings);
+
             EditorGUILayout.EndVertical();
         }
     }

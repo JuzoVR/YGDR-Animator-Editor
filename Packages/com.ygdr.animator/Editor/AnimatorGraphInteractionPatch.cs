@@ -118,6 +118,43 @@ namespace YGDR.Editor.Animation
                     }
                 }
 
+                if (currentEvent.type == EventType.KeyDown && (currentEvent.keyCode == KeyCode.Return || currentEvent.keyCode == KeyCode.KeypadEnter))
+                {
+                    if (PatchStateNodeMenu._multiTransitionSources != null)
+                    {
+                        var destinationStates = Selection.objects.OfType<AnimatorState>().ToArray();
+                        var multiSources = PatchStateNodeMenu._multiTransitionSources;
+                        var multiSM = PatchStateNodeMenu._multiTransitionSM;
+                        PatchStateNodeMenu._multiTransitionSources = null;
+                        PatchStateNodeMenu._multiTransitionSM = null;
+                        if (destinationStates.Length > 0) AnimatorLayerOps.MultiTransition(multiSM, multiSources, destinationStates);
+                        currentEvent.Use();
+                        return;
+                    }
+                    if (PatchStateNodeMenu._redirectTransitions != null)
+                    {
+                        var destinationStates = Selection.objects.OfType<AnimatorState>().ToArray();
+                        var redirectTransitions = PatchStateNodeMenu._redirectTransitions;
+                        var redirectSM = PatchStateNodeMenu._redirectSM;
+                        PatchStateNodeMenu._redirectTransitions = null;
+                        PatchStateNodeMenu._redirectSM = null;
+                        if (destinationStates.Length > 0) AnimatorLayerOps.RedirectTransitions(redirectSM, redirectTransitions, destinationStates);
+                        currentEvent.Use();
+                        return;
+                    }
+                    if (PatchStateNodeMenu._replicateTransitions != null)
+                    {
+                        var newSourceStates = Selection.objects.OfType<AnimatorState>().ToArray();
+                        var replicateTransitions = PatchStateNodeMenu._replicateTransitions;
+                        var replicateSM = PatchStateNodeMenu._replicateSM;
+                        PatchStateNodeMenu._replicateTransitions = null;
+                        PatchStateNodeMenu._replicateSM = null;
+                        if (newSourceStates.Length > 0) AnimatorLayerOps.ReplicateTransitions(replicateSM, replicateTransitions, newSourceStates);
+                        currentEvent.Use();
+                        return;
+                    }
+                }
+
                 if (currentEvent.type == EventType.KeyDown && currentEvent.control && currentEvent.keyCode == KeyCode.C)
                 {
                     var selectedTransitions = Selection.objects.OfType<AnimatorStateTransition>().ToArray();
@@ -266,7 +303,7 @@ namespace YGDR.Editor.Animation
         static AnimationClip FindBufferClip()
         {
             if (_bufferClip != null) return _bufferClip;
-            var guids = AssetDatabase.FindAssets("_buffer t:AnimationClip", new[] { "Packages/com.ygdr.animator/Editor/Resources" });
+            var guids = AssetDatabase.FindAssets("_buffer t:AnimationClip", new[] { "Packages/com.ygdr.animator/Templates" });
             foreach (var guid in guids)
             {
                 var path = AssetDatabase.GUIDToAssetPath(guid);

@@ -207,10 +207,28 @@ namespace YGDR.Editor.Animation
             DrawNetworkToggleRow("Sync Param Type", ref _networkUseBool,            "Int",        "Bool");
             DrawNetworkToggleRow("Transitions",     ref _networkAnyStateTransitions, "All-to-All", "Any State");
 
+            var smAssetPath = AssetDatabase.GetAssetPath(_activeStateMachine);
+            var activeController = AssetDatabase.LoadAssetAtPath<UnityEditor.Animations.AnimatorController>(smAssetPath);
+            string trimmedNetworkParamName = _networkParamName.Trim();
+            bool isDuplicateName = activeController != null
+                && !string.IsNullOrWhiteSpace(trimmedNetworkParamName)
+                && activeController.parameters.Any(parameter =>
+                    parameter.name == trimmedNetworkParamName
+                    || (parameter.name.StartsWith(trimmedNetworkParamName)
+                        && parameter.name.Length > trimmedNetworkParamName.Length
+                        && parameter.name[trimmedNetworkParamName.Length..].All(char.IsDigit)));
+
             using (new EditorGUILayout.HorizontalScope())
             {
                 GUILayout.Label("Sync Param Name", Styles.SmallLabel, GUILayout.Width(164));
                 _networkParamName = EditorGUILayout.TextField(_networkParamName);
+                if (isDuplicateName && Event.current.type == EventType.Repaint)
+                {
+                    var textFieldRect = GUILayoutUtility.GetLastRect();
+                    float iconSize = 16f;
+                    var warningRect = new Rect(textFieldRect.xMax - iconSize - 2f, textFieldRect.y + (textFieldRect.height - iconSize) * 0.5f, iconSize, iconSize);
+                    GUI.Label(warningRect, new GUIContent(EditorGUIUtility.IconContent("warning@2x").image, "Duplicate Name"), GUIStyle.none);
+                }
             }
 
             using (new EditorGUILayout.HorizontalScope())
@@ -243,7 +261,7 @@ namespace YGDR.Editor.Animation
 
             EditorGUILayout.Space(6);
 
-            bool canRun = !string.IsNullOrWhiteSpace(_networkParamName) && !string.IsNullOrWhiteSpace(_networkStatesPrefix);
+            bool canRun = !string.IsNullOrWhiteSpace(_networkParamName) && !string.IsNullOrWhiteSpace(_networkStatesPrefix) && !isDuplicateName;
 
             using (new EditorGUI.DisabledScope(!canRun))
             {
@@ -766,46 +784,50 @@ namespace YGDR.Editor.Animation
 
         // ── WD helpers ────────────────────────────────────────────────────────
 
-        /* Returns On, Off, or Mixed depending on whether states in the layer have Write Defaults enabled, disabled, or both. */
+        /* Returns On, Off, or Mixed depending on whether states in the layer have Write Defaults enabled, disabled, or both. Blend tree states are excluded if wdIncludeBlendTreeStates is false. */
         WDState GetLayerWDState(AnimatorControllerLayer layer)
         {
             bool hasOn = false, hasOff = false;
-            CollectWDState(layer.stateMachine, ref hasOn, ref hasOff);
+            bool includeBlendTrees = AnimatorDefaultSettings.Load().wdIncludeBlendTreeStates;
+            CollectWDState(layer.stateMachine, ref hasOn, ref hasOff, includeBlendTrees);
             if (hasOn && hasOff) return WDState.Mixed;
             return hasOn ? WDState.On : WDState.Off;
         }
 
-        /* Recursively sets hasOn and hasOff flags based on writeDefaultValues across all states in sm and its sub SMs. */
-        static void CollectWDState(AnimatorStateMachine sm, ref bool hasOn, ref bool hasOff)
+        /* Recursively sets hasOn and hasOff flags based on writeDefaultValues across all states in sm and its sub SMs. Skips states whose motion is a BlendTree when includeBlendTrees is false. */
+        static void CollectWDState(AnimatorStateMachine sm, ref bool hasOn, ref bool hasOff, bool includeBlendTrees)
         {
             foreach (var childState in sm.states)
             {
+                if (!includeBlendTrees && childState.state.motion is BlendTree) continue;
                 if (childState.state.writeDefaultValues) hasOn = true;
                 else hasOff = true;
             }
             foreach (var childStateMachine in sm.stateMachines)
-                CollectWDState(childStateMachine.stateMachine, ref hasOn, ref hasOff);
+                CollectWDState(childStateMachine.stateMachine, ref hasOn, ref hasOff, includeBlendTrees);
         }
 
-        /* Sets Write Defaults on all states in a layer recursively and marks the controller dirty. */
+        /* Sets Write Defaults on all states in a layer recursively and marks the controller dirty. Blend tree states are excluded if wdIncludeBlendTreeStates is false. */
         void SetLayerWD(AnimatorControllerLayer layer, bool value)
         {
-            SetSMWD(layer.stateMachine, value);
+            bool includeBlendTrees = AnimatorDefaultSettings.Load().wdIncludeBlendTreeStates;
+            SetSMWD(layer.stateMachine, value, includeBlendTrees);
             EditorUtility.SetDirty(_controller);
         }
 
-        /* Recursively sets writeDefaultValues on all states in sm and its sub SMs, registering each for undo. */
-        static void SetSMWD(AnimatorStateMachine sm, bool value)
+        /* Recursively sets writeDefaultValues on all states in sm and its sub SMs, registering each for undo. Skips states whose motion is a BlendTree when includeBlendTrees is false. */
+        static void SetSMWD(AnimatorStateMachine sm, bool value, bool includeBlendTrees)
         {
             Undo.RegisterCompleteObjectUndo(sm, "Set Write Defaults");
             foreach (var childState in sm.states)
             {
+                if (!includeBlendTrees && childState.state.motion is BlendTree) continue;
                 Undo.RecordObject(childState.state, "Set Write Defaults");
                 childState.state.writeDefaultValues = value;
                 EditorUtility.SetDirty(childState.state);
             }
             foreach (var childStateMachine in sm.stateMachines)
-                SetSMWD(childStateMachine.stateMachine, value);
+                SetSMWD(childStateMachine.stateMachine, value, includeBlendTrees);
             EditorUtility.SetDirty(sm);
         }
 

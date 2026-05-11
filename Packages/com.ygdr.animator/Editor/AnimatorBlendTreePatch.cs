@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using UnityEditor;
@@ -32,6 +33,7 @@ namespace YGDR.Editor.Animation
     internal static class PatchBlendTreeNodeGUI
     {
         internal static bool InNodeGUI { get; private set; }
+        internal static BlendTreeType? CurrentBlendType { get; private set; }
         internal static object SelectedNode;
 
         [HarmonyTargetMethod]
@@ -123,6 +125,8 @@ namespace YGDR.Editor.Animation
         static void Prefix(object n)
         {
             InNodeGUI = true;
+            var prefixMotion = Traverse.Create(n).Field("motion").GetValue() as Motion;
+            CurrentBlendType = prefixMotion is BlendTree prefixBlendTree ? prefixBlendTree.blendType : (BlendTreeType?)null;
             try
             {
                 if (Event.current.type == EventType.MouseDown && Event.current.button == 0)
@@ -143,6 +147,7 @@ namespace YGDR.Editor.Animation
         static void Postfix(object n)
         {
             InNodeGUI = false;
+            CurrentBlendType = null;
             try
             {
                 var motion = Traverse.Create(n).Field("motion").GetValue() as Motion;
@@ -241,6 +246,7 @@ namespace YGDR.Editor.Animation
     internal static class PatchBlendTreeOnGraphGUI
     {
         internal static bool InBlendTreeGUI { get; private set; }
+        internal static readonly Queue<BlendTreeType?> _blendTypeQueue = new Queue<BlendTreeType?>();
 
         [HarmonyTargetMethod]
         static MethodBase TargetMethod()
@@ -313,9 +319,26 @@ return method;
         }
 
         [HarmonyPrefix]
-        static void Prefix()
+        static void Prefix(object __instance)
         {
             InBlendTreeGUI = true;
+            _blendTypeQueue.Clear();
+            if (Event.current.type == EventType.Repaint)
+            {
+                var blendTreeGraph = Traverse.Create(__instance).Property("graph").GetValue();
+                if (blendTreeGraph != null)
+                {
+                    var graphNodes = PatchGraphDoubleClickCreate.GetNodes(blendTreeGraph);
+                    if (graphNodes != null)
+                    {
+                        foreach (var node in graphNodes)
+                        {
+                            var nodeMotion = Traverse.Create(node).Field("motion").GetValue() as Motion;
+                            _blendTypeQueue.Enqueue(nodeMotion is BlendTree nodeBT ? nodeBT.blendType : (BlendTreeType?)null);
+                        }
+                    }
+                }
+            }
 
             var currentEvent = Event.current;
             if (currentEvent.type == EventType.KeyDown && currentEvent.keyCode == KeyCode.F2)

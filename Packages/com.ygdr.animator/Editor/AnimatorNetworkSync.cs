@@ -82,35 +82,43 @@ namespace YGDR.Editor.Animation
             {
                 var state = entry.state;
                 int value = stateValues[state];
-                var driver = state.AddStateMachineBehaviour<VRCAvatarParameterDriver>();
-                Undo.RegisterCreatedObjectUndo(driver, "Network Sync");
-                driver.localOnly = false;
+
+                var existingDriver = state.behaviours.OfType<VRCAvatarParameterDriver>().FirstOrDefault();
+                VRCAvatarParameterDriver driver;
+                if (existingDriver != null)
+                {
+                    driver = existingDriver;
+                    Undo.RecordObject(driver, "Network Sync");
+                }
+                else
+                {
+                    driver = state.AddStateMachineBehaviour<VRCAvatarParameterDriver>();
+                    Undo.RegisterCreatedObjectUndo(driver, "Network Sync");
+                    driver.localOnly = false;
+                }
 
                 if (!config.useBool)
                 {
-                    driver.parameters = new List<VRC_AvatarParameterDriver.Parameter>
-                    {
-                        new VRC_AvatarParameterDriver.Parameter
+                    if (!driver.parameters.Any(parameter => parameter.name == config.paramName))
+                        driver.parameters.Add(new VRC_AvatarParameterDriver.Parameter
                         {
                             type = VRC_AvatarParameterDriver.ChangeType.Set,
                             name = config.paramName,
                             value = value
-                        }
-                    };
+                        });
                 }
                 else
                 {
-                    var driverParams = new List<VRC_AvatarParameterDriver.Parameter>();
                     for (int i = 0; i < syncParams.Length; i++)
                     {
-                        driverParams.Add(new VRC_AvatarParameterDriver.Parameter
-                        {
-                            type = VRC_AvatarParameterDriver.ChangeType.Set,
-                            name = syncParams[i],
-                            value = (value >> i) & 1
-                        });
+                        if (!driver.parameters.Any(parameter => parameter.name == syncParams[i]))
+                            driver.parameters.Add(new VRC_AvatarParameterDriver.Parameter
+                            {
+                                type = VRC_AvatarParameterDriver.ChangeType.Set,
+                                name = syncParams[i],
+                                value = (value >> i) & 1
+                            });
                     }
-                    driver.parameters = driverParams;
                 }
                 EditorUtility.SetDirty(state);
             }

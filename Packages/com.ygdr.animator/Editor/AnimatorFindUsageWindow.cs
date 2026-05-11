@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
+using VRC.Dynamics;
+using VRC.SDK3.Avatars.Components;
+using VRC.SDK3.Dynamics.PhysBone.Components;
 
 namespace YGDR.Editor.Animation
 {
@@ -26,7 +29,11 @@ namespace YGDR.Editor.Animation
         HashSet<int> _knownTransitionIds = new();
         List<AnimatorState> _clipStates = new();
         List<AnimationClip> _clipAssets = new();
+        bool _aapMode;
+        bool _effectingObjectsMode;
+        List<GameObject> _effectingObjects = new();
         Vector2 _scrollPosition;
+
 
 
         static GUIStyle s_rowLabelStyle;
@@ -65,6 +72,38 @@ namespace YGDR.Editor.Animation
             window._parameterName = parameter.name;
             window._parameterType = parameter.type;
             window._relativePath = null;
+            window._controllerPath = controller != null ? AssetDatabase.GetAssetPath(controller) : null;
+            window.RebuildCache();
+            window.Show();
+        }
+
+        internal static void OpenAap(AnimatorControllerParameter parameter, AnimatorController controller)
+        {
+            var window = GetWindow<AnimatorFindUsageWindow>("Find Uses");
+            window.minSize = new Vector2(480, 280);
+            window._controller = controller;
+            window._parameterName = parameter.name;
+            window._parameterType = parameter.type;
+            window._relativePath = null;
+            window._gameObjectName = null;
+            window._aapMode = true;
+            window._effectingObjectsMode = false;
+            window._controllerPath = controller != null ? AssetDatabase.GetAssetPath(controller) : null;
+            window.RebuildCache();
+            window.Show();
+        }
+
+        internal static void OpenEffectingObjects(AnimatorControllerParameter parameter, AnimatorController controller)
+        {
+            var window = GetWindow<AnimatorFindUsageWindow>("Find Uses");
+            window.minSize = new Vector2(480, 280);
+            window._controller = controller;
+            window._parameterName = parameter.name;
+            window._parameterType = parameter.type;
+            window._relativePath = null;
+            window._gameObjectName = null;
+            window._aapMode = false;
+            window._effectingObjectsMode = true;
             window._controllerPath = controller != null ? AssetDatabase.GetAssetPath(controller) : null;
             window.RebuildCache();
             window.Show();
@@ -142,12 +181,27 @@ namespace YGDR.Editor.Animation
             _knownTransitionIds.Clear();
             _clipStates.Clear();
             _clipAssets.Clear();
+            _effectingObjects.Clear();
+
+            if (_effectingObjectsMode)
+            {
+                SearchSceneForEffectingObjects();
+                return;
+            }
+
             if (_controller == null) return;
 
-            if (_parameterName != null)
+            if (_parameterName != null && !_aapMode)
             {
                 foreach (var layer in _controller.layers)
                     SearchSMForParameter(layer.stateMachine);
+            }
+            else if (_aapMode)
+            {
+                var seenStateIds = new HashSet<int>();
+                var seenClipIds  = new HashSet<int>();
+                foreach (var layer in _controller.layers)
+                    SearchSMForAapClips(layer.stateMachine, seenStateIds, seenClipIds);
             }
             else
             {
@@ -251,6 +305,36 @@ namespace YGDR.Editor.Animation
             }
         }
 
+        // ── AAP search ────────────────────────────────────────────────────────
+
+        void SearchSMForAapClips(AnimatorStateMachine sm, HashSet<int> seenStateIds, HashSet<int> seenClipIds)
+        {
+            foreach (var childState in sm.states)
+                CheckStateForAapClips(childState.state, seenStateIds, seenClipIds);
+            foreach (var childStateMachine in sm.stateMachines)
+                SearchSMForAapClips(childStateMachine.stateMachine, seenStateIds, seenClipIds);
+        }
+
+        void CheckStateForAapClips(AnimatorState state, HashSet<int> seenStateIds, HashSet<int> seenClipIds)
+        {
+            foreach (var clip in CollectClips(state.motion))
+            {
+                if (!ClipDrivesAapParam(clip)) continue;
+                if (seenStateIds.Add(state.GetInstanceID()))
+                    _clipStates.Add(state);
+                if (seenClipIds.Add(clip.GetInstanceID()))
+                    _clipAssets.Add(clip);
+            }
+        }
+
+        bool ClipDrivesAapParam(AnimationClip clip)
+        {
+            foreach (var binding in AnimationUtility.GetCurveBindings(clip))
+                if (binding.type == typeof(UnityEngine.Animator) && binding.propertyName == _parameterName)
+                    return true;
+            return false;
+        }
+
         bool ClipContainsPath(AnimationClip clip)
         {
             foreach (var binding in AnimationUtility.GetCurveBindings(clip))
@@ -291,9 +375,11 @@ namespace YGDR.Editor.Animation
             string name = _parameterName != null
                 ? $"{_parameterName}  <color=#{typeHex}>{_parameterType}</color>"
                 : _gameObjectName ?? "";
-            string counts = _parameterName != null
-                ? $"{_rows.Count} transition{(_rows.Count != 1 ? "s" : "")}"
-                : $"{_clipStates.Count} node{(_clipStates.Count != 1 ? "s" : "")}  ·  {_clipAssets.Count} clip{(_clipAssets.Count != 1 ? "s" : "")}";
+            string counts = _effectingObjectsMode
+                ? $"{_effectingObjects.Count} object{(_effectingObjects.Count != 1 ? "s" : "")}"
+                : (_parameterName != null && !_aapMode)
+                    ? $"{_rows.Count} transition{(_rows.Count != 1 ? "s" : "")}"
+                    : $"{_clipStates.Count} node{(_clipStates.Count != 1 ? "s" : "")}  ·  {_clipAssets.Count} clip{(_clipAssets.Count != 1 ? "s" : "")}";
             GUI.Label(headerRect, $"{name}  —  {counts}", AnimationEditorWindow.Styles.FindUsesHeader);
         }
 
@@ -304,9 +390,11 @@ namespace YGDR.Editor.Animation
             const float rowPad           = 2f;
             float rowHeight = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
 
-            int   displayRows = _parameterName != null
-                ? Mathf.Max(_rows.Count, 1)
-                : Mathf.Max(_clipStates.Count, _clipAssets.Count, 1);
+            int   displayRows = _effectingObjectsMode
+                ? Mathf.Max(_effectingObjects.Count, 1)
+                : (_parameterName != null && !_aapMode)
+                    ? Mathf.Max(_rows.Count, 1)
+                    : Mathf.Max(_clipStates.Count, _clipAssets.Count, 1);
             float totalHeight = columnHeaderHeight + rowPad + displayRows * rowHeight;
 
             GUILayout.Space(-EditorGUIUtility.standardVerticalSpacing);
@@ -328,22 +416,28 @@ namespace YGDR.Editor.Animation
                 EditorGUI.DrawRect(new Rect(rect.x + halfWidth + middleGap, rect.y, halfWidth, columnHeaderHeight), AnimationEditorWindow.Styles.AccentColor);
             }
 
-            string leftHeader  = _parameterName != null ? "Transition" : "State Node";
-            string rightHeader = _parameterName != null ? "Condition"  : "Animation Clip";
+            string leftHeader  = _effectingObjectsMode ? "" : (_parameterName != null && !_aapMode) ? "Transition" : "State Node";
+            string rightHeader = _effectingObjectsMode ? "Effecting Object" : (_parameterName != null && !_aapMode) ? "Condition" : "Animation Clip";
             GUI.Label(new Rect(rect.x,                         rect.y, halfWidth, columnHeaderHeight), leftHeader,  AnimationEditorWindow.Styles.FindUsesHeader);
             GUI.Label(new Rect(rect.x + halfWidth + middleGap, rect.y, halfWidth, columnHeaderHeight), rightHeader, AnimationEditorWindow.Styles.FindUsesHeader);
 
             float rowY = rect.y + columnHeaderHeight + rowPad;
-            bool isEmpty = _parameterName != null ? _rows.Count == 0 : _clipStates.Count == 0 && _clipAssets.Count == 0;
+            bool isEmpty = _effectingObjectsMode ? _effectingObjects.Count == 0 : (_parameterName != null && !_aapMode) ? _rows.Count == 0 : _clipStates.Count == 0 && _clipAssets.Count == 0;
 
             if (isEmpty)
             {
-                string emptyMessage = _parameterName != null
-                    ? "No transitions use this parameter."
-                    : "No clips reference this object.";
+                string emptyMessage = _effectingObjectsMode
+                    ? "No effecting objects found in scene."
+                    : (_parameterName != null && !_aapMode)
+                        ? "No transitions use this parameter."
+                        : _aapMode ? "No clips animate this parameter as AAP." : "No clips reference this object.";
                 GUI.Label(new Rect(rect.x, rowY, halfWidth, rowHeight), emptyMessage, AnimationEditorWindow.Styles.EmptyLabel);
             }
-            else if (_parameterName != null)
+            else if (_effectingObjectsMode)
+            {
+                DrawEffectingObjectRows(rect.x, halfWidth, middleGap, rowY, rowHeight);
+            }
+            else if (_parameterName != null && !_aapMode)
             {
                 DrawParameterRows(rect.x, halfWidth, middleGap, rowY, rowHeight);
             }
@@ -379,6 +473,105 @@ namespace YGDR.Editor.Animation
                 EditorGUIUtility.AddCursorRect(leftRect, MouseCursor.Link);
 
                 GUI.Label(rightRect, row.conditionLabel ?? "", RowLabelStyle);
+            }
+        }
+
+        // ── Effecting objects search ──────────────────────────────────────────
+
+        internal static readonly string[] PhysBoneSuffixes =
+        {
+            "_IsGrabbed", "_IsPosed", "_Angle", "_Stretch", "_Squish", "_Velocity", "_IsAnimated"
+        };
+
+        internal static readonly string[] RaycastSuffixes = { "_Hit", "_Ratio", "_Distance" };
+
+        internal static bool MatchesSuffixList(string componentBase, string animatorParam, string[] suffixes)
+        {
+            foreach (var suffix in suffixes)
+                if (animatorParam.Length == componentBase.Length + suffix.Length
+                    && animatorParam.StartsWith(componentBase, System.StringComparison.Ordinal)
+                    && animatorParam.EndsWith(suffix, System.StringComparison.Ordinal))
+                    return true;
+            return false;
+        }
+
+        void SearchSceneForEffectingObjects()
+        {
+            var seenIds = new HashSet<int>();
+
+#pragma warning disable CS0618
+            foreach (var receiver in Object.FindObjectsOfType<ContactReceiver>(true))
+            {
+                if (receiver.parameter != _parameterName) continue;
+                if (seenIds.Add(receiver.gameObject.GetInstanceID()))
+                    _effectingObjects.Add(receiver.gameObject);
+            }
+
+            foreach (var physBone in Object.FindObjectsOfType<VRCPhysBone>(true))
+            {
+                if (string.IsNullOrEmpty(physBone.parameter)) continue;
+                if (!MatchesSuffixList(physBone.parameter, _parameterName, PhysBoneSuffixes)) continue;
+                if (seenIds.Add(physBone.gameObject.GetInstanceID()))
+                    _effectingObjects.Add(physBone.gameObject);
+            }
+
+            foreach (var raycast in Object.FindObjectsOfType<VRCRaycast>(true))
+            {
+                var serializedRaycast = new SerializedObject(raycast);
+                var parameterProperty = serializedRaycast.FindProperty("parameter");
+                if (parameterProperty == null || string.IsNullOrEmpty(parameterProperty.stringValue)) continue;
+                if (!MatchesSuffixList(parameterProperty.stringValue, _parameterName, RaycastSuffixes)) continue;
+                if (seenIds.Add(raycast.gameObject.GetInstanceID()))
+                    _effectingObjects.Add(raycast.gameObject);
+            }
+#pragma warning restore CS0618
+        }
+
+        internal static HashSet<string> BuildAllEffectingParamNames()
+        {
+            var result = new HashSet<string>();
+#pragma warning disable CS0618
+            foreach (var receiver in Object.FindObjectsOfType<ContactReceiver>(true))
+                if (!string.IsNullOrEmpty(receiver.parameter))
+                    result.Add(receiver.parameter);
+
+            foreach (var physBone in Object.FindObjectsOfType<VRCPhysBone>(true))
+            {
+                if (string.IsNullOrEmpty(physBone.parameter)) continue;
+                foreach (var suffix in PhysBoneSuffixes)
+                    result.Add(physBone.parameter + suffix);
+            }
+
+            foreach (var raycast in Object.FindObjectsOfType<VRCRaycast>(true))
+            {
+                var serializedRaycast = new SerializedObject(raycast);
+                var parameterProperty = serializedRaycast.FindProperty("parameter");
+                if (parameterProperty == null || string.IsNullOrEmpty(parameterProperty.stringValue)) continue;
+                foreach (var suffix in RaycastSuffixes)
+                    result.Add(parameterProperty.stringValue + suffix);
+            }
+#pragma warning restore CS0618
+            return result;
+        }
+
+        void DrawEffectingObjectRows(float x, float halfWidth, float middleGap, float startY, float rowHeight)
+        {
+            float rowY = startY;
+            for (int i = 0; i < _effectingObjects.Count; i++, rowY += rowHeight)
+            {
+                var go = _effectingObjects[i];
+                if (go == null) continue;
+
+                if (Event.current.type == EventType.Repaint && i % 2 == 1)
+                    EditorGUI.DrawRect(new Rect(x + halfWidth + middleGap, rowY, halfWidth, rowHeight), AnimationEditorWindow.Styles.RowAltColor);
+
+                var rightRect = new Rect(x + halfWidth + middleGap, rowY, halfWidth, rowHeight);
+                if (GUI.Button(rightRect, go.name, ClickableRowStyle))
+                {
+                    Selection.activeGameObject = go;
+                    EditorGUIUtility.PingObject(go);
+                }
+                EditorGUIUtility.AddCursorRect(rightRect, MouseCursor.Link);
             }
         }
 

@@ -35,6 +35,7 @@ namespace YGDR.Editor.Animation
                 s_condBtn                  = null;
                 s_controllerSubTabBtn      = null;
                 s_controllerSubTabBtnActive = null;
+                AnimatorTemplateParameterWindow.InvalidateStyles();
             }
 
             static GUIStyle s_boolBtnTrue;

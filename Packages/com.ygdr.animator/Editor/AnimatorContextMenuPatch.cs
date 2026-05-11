@@ -197,6 +197,10 @@ namespace YGDR.Editor.Animation
                             static data =>
                             {
                                 var (states, sm) = ((AnimatorState[], AnimatorStateMachine))data;
+                                _redirectTransitions = null;
+                                _redirectSM = null;
+                                _replicateTransitions = null;
+                                _replicateSM = null;
                                 _multiTransitionSources = states;
                                 _multiTransitionSM = sm;
                             },
@@ -228,6 +232,10 @@ namespace YGDR.Editor.Animation
                             static data =>
                             {
                                 var (transitions, sm) = ((AnimatorStateTransition[], AnimatorStateMachine))data;
+                                _multiTransitionSources = null;
+                                _multiTransitionSM = null;
+                                _replicateTransitions = null;
+                                _replicateSM = null;
                                 _redirectTransitions = transitions;
                                 _redirectSM = sm;
                             },
@@ -259,6 +267,10 @@ namespace YGDR.Editor.Animation
                             static data =>
                             {
                                 var (transitions, sm) = ((AnimatorStateTransition[], AnimatorStateMachine))data;
+                                _multiTransitionSources = null;
+                                _multiTransitionSM = null;
+                                _redirectTransitions = null;
+                                _redirectSM = null;
                                 _replicateTransitions = transitions;
                                 _replicateSM = sm;
                             },
@@ -523,6 +535,10 @@ namespace YGDR.Editor.Animation
                             static data =>
                             {
                                 var (transitions, sm) = ((AnimatorStateTransition[], AnimatorStateMachine))data;
+                                PatchStateNodeMenu._multiTransitionSources = null;
+                                PatchStateNodeMenu._multiTransitionSM = null;
+                                PatchStateNodeMenu._replicateTransitions = null;
+                                PatchStateNodeMenu._replicateSM = null;
                                 PatchStateNodeMenu._redirectTransitions = transitions;
                                 PatchStateNodeMenu._redirectSM = sm;
                             },
@@ -554,6 +570,10 @@ namespace YGDR.Editor.Animation
                             static data =>
                             {
                                 var (transitions, sm) = ((AnimatorStateTransition[], AnimatorStateMachine))data;
+                                PatchStateNodeMenu._multiTransitionSources = null;
+                                PatchStateNodeMenu._multiTransitionSM = null;
+                                PatchStateNodeMenu._redirectTransitions = null;
+                                PatchStateNodeMenu._redirectSM = null;
                                 PatchStateNodeMenu._replicateTransitions = transitions;
                                 PatchStateNodeMenu._replicateSM = sm;
                             },
@@ -582,6 +602,33 @@ namespace YGDR.Editor.Animation
                     false,
                     static data => AnimatorLayerOps.DeleteAllTransitions((AnimatorStateMachine)data),
                     activeStateMachine);
+
+                menu.AddSeparator("");
+
+                var capturedMousePosition = Event.current.mousePosition;
+                var capturedGraphGUI = graphGUI;
+                menu.AddItem(new GUIContent("Create Frame"), false, () =>
+                {
+                    var getActiveSM = AccessTools.Method(capturedGraphGUI.GetType(), "get_activeStateMachine");
+                    var sm = getActiveSM?.Invoke(capturedGraphGUI, null) as AnimatorStateMachine;
+                    if (sm == null) return;
+                    var controllerPath = AssetDatabase.GetAssetPath(sm);
+                    var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(controllerPath);
+                    if (controller == null) return;
+
+                    var frameData = FrameLayoutData.GetOrCreate(controller);
+                    float graphX = capturedMousePosition.x + FrameRenderer.LastScrollPosition.x;
+                    float graphY = capturedMousePosition.y + FrameRenderer.LastScrollPosition.y;
+
+                    var newFrame = new FrameRect { title = "New Frame", layerStateMachine = FrameRenderer.LastRootLayerSM, bounds = new Rect(graphX, graphY, 300f, 200f) };
+                    Undo.RegisterCompleteObjectUndo(frameData, "Create Frame");
+                    frameData.frames.Add(newFrame);
+                    EditorUtility.SetDirty(frameData);
+
+                    FrameRenderer.SelectedFrame = newFrame;
+                    FrameInteractionPatch.IsRenaming = true;
+                    FrameInteractionPatch.RenameBuffer = newFrame.title;
+                });
             }
             catch (Exception e)
             {
