@@ -236,6 +236,7 @@ namespace YGDR.Editor.Animation
         string[] _cachedParamLabels;
         Vector2 _scrollPosition;
         string _targetControllerPath;
+        string _importedLayerName;
 
         // Create mode
         bool               _isCreateMode;
@@ -327,6 +328,8 @@ namespace YGDR.Editor.Animation
                 .Field("m_Host").Property("animatorController").GetValue<AnimatorController>();
             window._targetControllerPath = targetController != null
                 ? AssetDatabase.GetAssetPath(targetController) : "";
+            window._importedLayerName = templateController.layers.Length > 0
+                ? templateController.layers[0].name : "";
             window.ShowUtility();
         }
 
@@ -453,6 +456,9 @@ namespace YGDR.Editor.Animation
                 EditorGUILayout.LabelField(
                     $"Template clips copied to {System.IO.Path.GetDirectoryName(_targetControllerPath)}",
                     EditorStyles.centeredGreyMiniLabel);
+                EditorGUILayout.Space(4f);
+                EditorGUILayout.LabelField("Layer Name", EditorStyles.centeredGreyMiniLabel);
+                _importedLayerName = EditorGUILayout.TextField(_importedLayerName);
             }
 
             EditorGUILayout.Space(6f);
@@ -702,6 +708,14 @@ namespace YGDR.Editor.Animation
             PatchLayerCopyPaste.ImportAllLayersFromTemplate(_templateController, _targetLayerView);
 
             var newLayers = targetController.layers.Skip(layerCountBefore).ToArray();
+
+            if (!string.IsNullOrWhiteSpace(_importedLayerName) && newLayers.Length > 0)
+            {
+                var allLayers = targetController.layers;
+                allLayers[layerCountBefore].name = _importedLayerName.Trim();
+                targetController.layers = allLayers;
+                newLayers = targetController.layers.Skip(layerCountBefore).ToArray();
+            }
 
             CreateLocalClipsForNewLayers(targetController, newLayers);
             SyncClipAAPParams(targetController, _templateController, newLayers);

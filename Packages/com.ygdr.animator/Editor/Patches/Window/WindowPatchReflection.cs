@@ -111,6 +111,10 @@ namespace YGDR.Editor.Animation
                 LayerSelectedIndexField != null ? (int)(LayerSelectedIndexField.GetValue(_instance) ?? -1) : -1;
         }
 
+        // Optional MDV integration
+        internal static readonly MethodInfo MdvOpenMethod =
+            AccessTools.Method(AccessTools.TypeByName("YGDR.MDV.MDViewer"), "Open");
+
         static FieldInfo FindReorderableListField(Type type)
         {
             if (type == null) return null;

@@ -15,8 +15,15 @@ namespace YGDR.Editor.Animation
         static MethodBase TargetMethod() => GraphPatchReflection.DrawGridMethod;
 
         static Material _coloredMat;
-        static Material ColoredMat => _coloredMat ??=
-            new Material(Shader.Find("Hidden/Internal-Colored")) { hideFlags = HideFlags.HideAndDontSave };
+        static Material ColoredMat
+        {
+            get
+            {
+                if (_coloredMat == null)
+                    _coloredMat = new Material(Shader.Find("Hidden/Internal-Colored")) { hideFlags = HideFlags.HideAndDontSave };
+                return _coloredMat;
+            }
+        }
 
         [HarmonyPrefix]
         static bool Prefix(Rect gridRect, float zoomLevel)

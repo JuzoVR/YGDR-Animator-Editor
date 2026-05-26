@@ -1,6 +1,6 @@
 {
     "name": "com.ygdr.animator.Editor",
-    "rootNamespace": "",
+    "rootNamespace": "ygdr",
     "references": [
         "com.ygdr.animator"
     ],

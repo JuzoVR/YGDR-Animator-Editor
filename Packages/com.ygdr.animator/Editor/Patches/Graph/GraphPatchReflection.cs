@@ -17,6 +17,8 @@ namespace YGDR.Editor.Animation
                 Debug.LogWarning("[AnimatorTools] GraphGUI.OnGraphGUI not found — Unity version mismatch?");
             if (DrawEdgeMethod == null)
                 Debug.LogWarning("[AnimatorTools] EdgeGUI.DrawEdge not found — Unity version mismatch?");
+            if (RebuildGraphMethod == null)
+                Debug.LogWarning("[AnimatorTools] AnimatorControllerTool.RebuildGraph not found — Unity version mismatch?");
         }
 
         // ── Graph types ──────────────────────────────────────────────────────
@@ -57,6 +59,11 @@ namespace YGDR.Editor.Animation
                 new[] { EdgeType, typeof(Vector3).MakeByRefType() });
         internal static readonly MethodInfo EdgeSizeMultiplierGetter =
             AccessTools.PropertyGetter(EdgeGUIType, "edgeSizeMultiplier");
+
+        // ── AnimatorControllerTool methods ───────────────────────────────────
+        internal static readonly MethodInfo RebuildGraphMethod =
+            AccessTools.Method(AnimatorEditorInit.AnimatorControllerToolType, "RebuildGraph",
+                new[] { typeof(bool) });
 
         // ── Node fields ──────────────────────────────────────────────────────
         internal static readonly FieldInfo StateNodeStateField =

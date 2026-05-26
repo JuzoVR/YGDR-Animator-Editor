@@ -1,8 +1,8 @@
-# YGDR Animator Editor
+# YGDR Animator Editor Docs
 
-![Unity](https://img.shields.io/badge/Unity-2022.3_LTS-black?logo=unity)
-![VRChat SDK](https://img.shields.io/badge/VRChat_SDK-3.x-blue?logo=vrchat)
-![Harmony](https://img.shields.io/badge/Harmony-2.x-orange)
+![Unity](https://img.shields.io/badge/Unity-2022.3_LTS-black.png?logo=unity "=125")
+![VRChat SDK](https://img.shields.io/badge/VRChat_SDK-3.x-blue.png?logo=vrchat)
+![Harmony](https://img.shields.io/badge/Harmony-2.x-orange.png)
 
 Powerful Unity Editor tool for advanced animator controller editing. Extends Animator window with multi-transition editing, state property management, VRC-specific features, and graph enhancements.
 
@@ -83,9 +83,9 @@ Select one or more state nodes → tab shows properties for all selected. Collap
 
 **State List** — Each selected state has `In` / `Out` buttons to quickly select relevant transitions.
 
-**Align States** — Buttons to vertically/horizontally align/distribute all selected states. Useful for organizing complex state machines.
+**Align States** — Buttons to vertically/horizontally & align/distribute all selected states. Useful for organizing complex state machines.
 
-**State Properties** — Edit names (appends `#1`, `#2`…`#n` to extra selected nodes to prevent duplicates), speed, motion (animation clip), cycle offset, write defaults, mirror, foot IK toggles. Motion fields show preview of assigned clip, accept drag-drop, and display `-` on mixed values.
+**State Properties** — Edit names (appends `#1`, `#2`…`#n` to subsequent selected nodes to prevent duplicates), speed, motion (animation clip), cycle offset, write defaults, mirror, foot IK toggles. Motion fields show preview of assigned clip, accept drag-drop, and display `-` on mixed values.
 
 #### Shared Behaviors
 
@@ -94,7 +94,7 @@ VRC Parameter Drivers, VRC Play Audio, VRC Tracking Control.
 **VRC Parameter Driver** — Add or edit shared drivers across selected states. Each row specifies type (`Set` / `Add` / `Random` / `Copy`), parameter name, value. Click `-` to remove row. Removing all rows removes the component. Changes reflect immediately on state's `StateMachineBehaviour`.
 
 > [!IMPORTANT]
-> VRC features require VRChat SDK installed. Without SDK, VRC tabs and behaviors hide automatically.
+> VRC features require VRChat SDK installed. Without SDK, some features will not work.
 
 **VRC Play Audio** — Configure play-audio parameters on shared states (audio source reference, animation clip, parameter name). `-` indicates mixed values.
 
@@ -142,8 +142,7 @@ Fix broken animation clip bindings.
 - **Auto-Repath** — Automatically updates bindings on hierarchy GameObject rename/move. Tracks only bindings that were valid when toggled on.
 - Select clip from list → focuses asset in Project window. Select multiple clips in Project → list highlights in green → direct remap available. List shows only clips belonging to avatar in slot.
 
-> [!NOTE]
-> Clip Remapper integration based on [hfcRed's Clip Remapper](https://github.com/hfcRed/Animation-Repathing).
+Clip Remapper integration based on [hfcRed's Animation-Repathing](https://github.com/hfcRed/Animation-Repathing).
 
 ---
 
@@ -475,4 +474,4 @@ Right-click empty graph:
 
 All operations (pack, unpack, state moves, transition creation, layer copy-paste, VRC parameter edits, etc.) fully undoable. Tool uses Unity's `Undo` system at all system boundaries → properly registers object creation and destruction.
 
-Node Colors, Initial patching hook methods, EditorPrefs settings mechanism based on Rrazgriz ([Ratz](https://github.com/rrazgriz/RATS))
+Node Colors, Initial patching hook methods, EditorPrefs settings mechanism based on Ratz by ([rrazgriz](https://github.com/rrazgriz/RATS))

@@ -62,3 +62,10 @@ crashlytics-build.properties
 Assets/PackageMakerWindowData.asset*
 .idea
 .vscode
+
+# Tool Notes and References
+graphify-out/
+YGDR-Notes/
+CLAUDE.md
+IconBrowserWindow.cs
+IconBrowserWindow.cs.meta

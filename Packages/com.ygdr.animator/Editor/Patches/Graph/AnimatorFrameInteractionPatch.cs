@@ -50,6 +50,9 @@ namespace YGDR.Editor.Animation
 
         static readonly List<FrameRect> _copiedFrames = new List<FrameRect>();
 
+        static MethodInfo _getActiveStateMachineMethod;
+        static AnimatorStateMachine _lastKnownActiveSM;
+
         internal static bool IsRenaming;
         static bool _renameJustStarted;
         static bool _renameFieldHadFocus;
@@ -64,6 +67,22 @@ namespace YGDR.Editor.Animation
         static void Prefix(object __instance)
         {
             _lastGraphGUI = __instance;
+
+            // Detect layer switch by resolving activeStateMachine directly from the GraphGUI instance.
+            // Zero-frame delay — does not depend on FrameRenderer's postfix having run yet.
+            _getActiveStateMachineMethod ??= AccessTools.Method(__instance.GetType(), "get_activeStateMachine");
+            var currentActiveSM = _getActiveStateMachineMethod?.Invoke(__instance, null) as AnimatorStateMachine;
+            if (currentActiveSM != _lastKnownActiveSM)
+            {
+                _lastKnownActiveSM    = currentActiveSM;
+                IsRenaming            = false;
+                IsPickingColor        = false;
+                IsEditingComments     = false;
+                CommentsTarget        = null;
+                ColorPickerTarget     = null;
+                GUIUtility.keyboardControl = 0;
+            }
+
             var frameData = FrameRenderer.LastFrameData;
             if (frameData == null) return;
 

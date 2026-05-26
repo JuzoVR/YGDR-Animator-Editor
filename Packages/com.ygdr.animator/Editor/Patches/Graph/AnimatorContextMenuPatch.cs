@@ -266,18 +266,21 @@ namespace YGDR.Editor.Animation
                 }
                 else
                 {
+                    bool isExitClick = Selection.objects.Any(o => AnimatorEditorInit.ExitNodeType?.IsInstanceOfType(o) ?? false);
                     menu.AddItem(new GUIContent("Redirect Transitions"), true,
                         static data =>
                         {
-                            var dests = (AnimatorState[])data;
+                            var (dests, toExit) = ((AnimatorState[], bool))data;
                             var transitions = _redirectTransitions;
                             var sm = _redirectSM;
                             _redirectTransitions = null;
                             _redirectSM = null;
-                            if (dests.Length > 0)
+                            if (toExit)
+                                AnimatorLayerOps.RedirectTransitionsToExit(sm, transitions);
+                            else if (dests.Length > 0)
                                 AnimatorLayerOps.RedirectTransitions(sm, transitions, dests);
                         },
-                        selectedStates);
+                        (selectedStates, isExitClick));
                 }
 
                 // Replicate Transitions
@@ -301,18 +304,21 @@ namespace YGDR.Editor.Animation
                 }
                 else
                 {
+                    bool isAnyStateClick = Selection.objects.Any(o => AnimatorEditorInit.AnyStateNodeType?.IsInstanceOfType(o) ?? false);
                     menu.AddItem(new GUIContent("Replicate Transitions"), true,
                         static data =>
                         {
-                            var newSourceStates = (AnimatorState[])data;
+                            var (newSourceStates, fromAnyState) = ((AnimatorState[], bool))data;
                             var transitions = _replicateTransitions;
                             var sm = _replicateSM;
                             _replicateTransitions = null;
                             _replicateSM = null;
-                            if (newSourceStates.Length > 0)
+                            if (fromAnyState)
+                                AnimatorLayerOps.ReplicateTransitionsFromAnyState(sm, transitions);
+                            else if (newSourceStates.Length > 0)
                                 AnimatorLayerOps.ReplicateTransitions(sm, transitions, newSourceStates);
                         },
-                        selectedStates);
+                        (selectedStates, isAnyStateClick));
                 }
 
             }

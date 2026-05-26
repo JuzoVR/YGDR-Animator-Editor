@@ -30,6 +30,12 @@ namespace YGDR.Editor.Animation
         bool _showSharedConditions = true;
         bool _paletteApplied;
 
+        Action _helpTransitions;
+        Action _helpStates;
+        Action _helpController;
+        Action _helpSettings;
+        static Action _helpDocs;
+
         [MenuItem("YGDR/YGDR Animator Editor")]
         static void Open()
         {
@@ -40,7 +46,12 @@ namespace YGDR.Editor.Animation
 
         void OnEnable()
         {
-            _cachedVersion = null;
+            _cachedVersion    = null;
+            _helpTransitions  = MdvHelpAction("Transitions", 56, 76);
+            _helpStates       = MdvHelpAction("States", 79, 107);
+            _helpController   = MdvHelpAction("Controller", 110, 146);
+            _helpSettings     = MdvHelpAction("Settings", 148, 221);
+            _helpDocs         = MdvHelpAction("Tool Docs", -1, -1);
             Selection.selectionChanged += OnSelectionChanged;
             EditorApplication.update += PollAnimatorWindow;
             ObjectChangeEvents.changesPublished += OnAssetChangesPublished;
@@ -247,10 +258,10 @@ namespace YGDR.Editor.Animation
             EditorGUILayout.BeginHorizontal();
             GUILayout.Space(8);
             EditorGUILayout.BeginVertical();
-            if (_tabOpen[0]) { DrawSectionHeader("Transitions", _selectedTransitions.Length > 0 ? $"{_selectedTransitions.Length} selected" : null); DrawTransitionsTab(); EditorGUILayout.Space(10); }
-            if (_tabOpen[1]) { DrawSectionHeader("States", _selectedStates.Length > 0 ? $"{_selectedStates.Length} selected" : null); DrawStatesTab(); EditorGUILayout.Space(10); }
-            if (_tabOpen[2]) { DrawSectionHeader("Controller", ControllerSectionCountLabel);  DrawControllerTab();  EditorGUILayout.Space(10); }
-            if (_tabOpen[3]) { DrawSectionHeader("Settings");    DrawSettingsTab();    EditorGUILayout.Space(10); }
+            if (_tabOpen[0]) { DrawSectionHeader("Transitions", _selectedTransitions.Length > 0 ? $"{_selectedTransitions.Length} selected" : null, _helpTransitions); DrawTransitionsTab(); EditorGUILayout.Space(10); }
+            if (_tabOpen[1]) { DrawSectionHeader("States", _selectedStates.Length > 0 ? $"{_selectedStates.Length} selected" : null, _helpStates); DrawStatesTab(); EditorGUILayout.Space(10); }
+            if (_tabOpen[2]) { DrawSectionHeader("Controller", ControllerSectionCountLabel, _helpController); DrawControllerTab(); EditorGUILayout.Space(10); }
+            if (_tabOpen[3]) { DrawSectionHeader("Settings", null, _helpSettings); DrawSettingsTab(); EditorGUILayout.Space(10); }
             EditorGUILayout.EndVertical();
             GUILayout.Space(8);
             EditorGUILayout.EndHorizontal();
@@ -299,6 +310,12 @@ namespace YGDR.Editor.Animation
         static readonly GUIContent s_breadcrumbSeparatorContent = new(" > ");
         static readonly GUIContent s_breadcrumbSegmentContent  = new();
 
+        static GUIContent s_helpIconContent;
+        static GUIContent HelpIconContent => s_helpIconContent ??= EditorGUIUtility.IconContent("d__Help@2x");
+
+        static GUIContent s_footerMenuIconContent;
+        static GUIContent FooterMenuIconContent => s_footerMenuIconContent ??= EditorGUIUtility.IconContent("d_UnityEditor.ConsoleWindow@2x");
+
         static void DrawBreadcrumbSegment(ref float x, Rect barRect, string text, bool isLeaf)
         {
             var style = isLeaf ? Styles.BreadcrumbLeaf : Styles.BreadcrumbParent;
@@ -339,15 +356,39 @@ namespace YGDR.Editor.Animation
             return clicked;
         }
 
-        /* Draws a full-width dark header bar containing label, spanning edge-to-edge regardless of scroll indent. */
-        static void DrawSectionHeader(string label, string rightLabel = null)
+        const string MdvDocGuid = "2dba3511e1633094a83bbdb970508e8f";
+
+        static Action MdvHelpAction(string title, int lineMin, int lineMax)
+        {
+            if (WindowPatchReflection.MdvOpenMethod == null)
+                return () => EditorApplication.delayCall += () => EditorUtility.DisplayDialog(
+                    "YGDR Markdown Viewer not installed",
+                    "Install YGDR Markdown Viewer (com.ygdr.mdv) via Package Manager/VCC to view help documentation.",
+                    "OK");
+            return () => WindowPatchReflection.MdvOpenMethod.Invoke(null, new object[] { MdvDocGuid, null, title, lineMin, lineMax, false });
+        }
+
+        /* Draws a full-width dark header bar containing label, spanning edge-to-edge regardless of scroll indent.
+           Pass helpAction to render a help icon button on the right that invokes MDV.Open() with section-specific args. */
+        static void DrawSectionHeader(string label, string rightLabel = null, Action helpAction = null)
         {
             var rect = EditorGUILayout.GetControlRect(false, 28f, GUILayout.ExpandWidth(true));
             var backgroundRect = new Rect(0, rect.y - EditorGUIUtility.standardVerticalSpacing, EditorGUIUtility.currentViewWidth, rect.height + EditorGUIUtility.standardVerticalSpacing);
             EditorGUI.DrawRect(backgroundRect, Styles.SectionHeaderBg);
             GUI.Label(rect, label, Styles.TabSectionLabel);
+
+            if (helpAction != null)
+            {
+                var buttonRect = new Rect(rect.xMax - 22, rect.y + 4, 20, 20);
+                if (CursorBtn(buttonRect, HelpIconContent, GUIStyle.none))
+                    helpAction();
+            }
+
             if (rightLabel != null)
-                GUI.Label(rect, rightLabel, Styles.SectionHeaderCount);
+            {
+                var rightLabelRect = helpAction != null ? new Rect(rect.x, rect.y, rect.width - 26, rect.height) : rect;
+                GUI.Label(rightLabelRect, rightLabel, Styles.SectionHeaderCount);
+            }
         }
 
         static string _cachedVersion;
@@ -363,7 +404,19 @@ namespace YGDR.Editor.Animation
             var rect = EditorGUILayout.GetControlRect(false, 18f, GUILayout.ExpandWidth(true));
             EditorGUI.DrawRect(rect, Styles.SectionHeaderBg);
             GUI.Label(rect, "Created by YerGodDamnRight", Styles.FooterLabel);
+
+            float versionWidth = Styles.FooterVersion.CalcSize(new GUIContent(GetVersion())).x;
             GUI.Label(rect, GetVersion(), Styles.FooterVersion);
+            var menuButtonRect = new Rect(rect.x + versionWidth + 2, rect.y + 1, 16, 16);
+
+            if (CursorBtn(menuButtonRect, FooterMenuIconContent, GUIStyle.none))
+            {
+                var menu = new GenericMenu();
+                menu.AddItem(new GUIContent("Docs"),    false, () => _helpDocs?.Invoke());
+                menu.AddItem(new GUIContent("Discord"), false, static () => Application.OpenURL("https://discord.gg/s8gTEk8xFb"));
+                menu.AddItem(new GUIContent("Gumroad"), false, static () => Application.OpenURL("https://yergoddamnright.gumroad.com"));
+                menu.DropDown(menuButtonRect);
+            }
         }
 
         static void DrawSeparator()

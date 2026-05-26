@@ -115,9 +115,8 @@ namespace YGDR.Editor.Animation
                         var stateMachine = layer.stateMachine;
                         bool isEmpty = PatchLayerWDIndicator.IsEmpty(stateMachine);
 
-                        int wdOn = 0, wdOff = 0;
-                        if (!isEmpty)
-                            PatchLayerWDIndicator.CountWD(stateMachine, ref wdOn, ref wdOff, wdSettings.wdIncludeBlendTreeStates);
+                        var (wdOn, wdOff) = isEmpty ? (0, 0)
+                            : PatchLayerWDIndicator.GetOrComputeWD(stateMachine, wdSettings.wdIncludeBlendTreeStates);
                         bool showWD = !isEmpty && wdOn > 0;
 
                         var controller = WindowPatchReflection.GetOpenController();
@@ -277,12 +276,14 @@ namespace YGDR.Editor.Animation
 
                 if (PatchLayerCompact.IsCompact)
                 {
-                    if (OriginalDrawCallback == null)
-                        OriginalDrawCallback = reorderableList.drawElementCallback;
                     reorderableList.elementHeight = 22f;
-                    var capturedInstance = __instance;
-                    reorderableList.drawElementCallback = (rect, index, isActive, isFocused) =>
-                        PatchLayerCompact.DrawCompactLayer(rect, index, isActive, isFocused, capturedInstance);
+                    if (OriginalDrawCallback == null)
+                    {
+                        OriginalDrawCallback = reorderableList.drawElementCallback;
+                        var capturedInstance = __instance;
+                        reorderableList.drawElementCallback = (rect, index, isActive, isFocused) =>
+                            PatchLayerCompact.DrawCompactLayer(rect, index, isActive, isFocused, capturedInstance);
+                    }
                 }
                 else if (OriginalDrawCallback != null)
                 {

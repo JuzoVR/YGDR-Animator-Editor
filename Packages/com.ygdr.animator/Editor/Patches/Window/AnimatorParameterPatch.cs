@@ -444,6 +444,8 @@ namespace YGDR.Editor.Animation
                     if (!_paramNameCache.TryGetValue(controller.GetInstanceID(), out var oldNames)) continue;
                     var newNames = controller.parameters.Select(parameter => parameter.name).ToArray();
                     if (oldNames.Length != newNames.Length) { _paramNameCache[controller.GetInstanceID()] = newNames; continue; }
+                    // Pure reorder: same set of names, different positions — don't treat as rename
+                    if (oldNames.OrderBy(n => n).SequenceEqual(newNames.OrderBy(n => n))) { _paramNameCache[controller.GetInstanceID()] = newNames; continue; }
                     for (int j = 0; j < newNames.Length; j++)
                     {
                         if (newNames[j] == oldNames[j]) continue;
@@ -489,10 +491,20 @@ namespace YGDR.Editor.Animation
             if (reorderableList == null || reorderableList.index < 0) return;
 
             var controller = WindowPatchReflection.GetOpenController();
-            if (controller == null || reorderableList.index >= controller.parameters.Length) return;
+            if (controller == null) return;
 
-            var parameter = controller.parameters[reorderableList.index];
-            var capturedIndex = reorderableList.index;
+            // reorderableList.index is the visual (filtered) index — derive actual parameter from the list item
+            var listItem = reorderableList.index < reorderableList.list.Count
+                ? reorderableList.list[reorderableList.index]
+                : null;
+            var parameter = listItem != null
+                ? Traverse.Create(listItem).Field("m_Parameter").GetValue<AnimatorControllerParameter>()
+                : null;
+            if (parameter == null) return;
+
+            // actual index in the unfiltered controller.parameters array
+            var capturedIndex = Array.FindIndex(controller.parameters, p => p.name == parameter.name);
+            if (capturedIndex < 0) return;
             var capturedInstance = __instance;
 
             var capturedScreenPos = GUIUtility.GUIToScreenPoint(currentEvent.mousePosition);
@@ -575,9 +587,13 @@ namespace YGDR.Editor.Animation
             {
                 var (deleteController, deleteParamName) = ((AnimatorController, string))data;
                 AnimatorParameterOps.DeleteParameterAndClean(deleteController, deleteParamName);
+                EditorApplication.delayCall += UnityEditorInternal.InternalEditorUtility.RepaintAllViews;
             }, (capturedFindController, capturedFindParameter.name));
             menu.AddItem(new GUIContent("Remove Unused Parameters"), false, static data =>
-                AnimatorParameterOps.RemoveUnusedParameters((AnimatorController)data), capturedFindController);
+            {
+                AnimatorParameterOps.RemoveUnusedParameters((AnimatorController)data);
+                EditorApplication.delayCall += UnityEditorInternal.InternalEditorUtility.RepaintAllViews;
+            }, capturedFindController);
 
             menu.ShowAsContext();
             }

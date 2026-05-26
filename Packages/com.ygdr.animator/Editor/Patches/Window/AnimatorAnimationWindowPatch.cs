@@ -151,7 +151,7 @@ namespace YGDR.Editor.Animation
         static void FindAnimationUses()
         {
             var gameObject = Selection.activeGameObject;
-            var animator = gameObject.GetComponentInParent<Animator>();
+            var animator = gameObject.GetComponentInParent<Animator>(true);
             var controller = (animator.runtimeAnimatorController as UnityEditor.Animations.AnimatorController)
                 ?? WindowPatchReflection.GetOpenController();
             var relativePath = GetRelativePath(animator.transform, gameObject.transform);
@@ -164,12 +164,12 @@ namespace YGDR.Editor.Animation
         {
             var gameObject = Selection.activeGameObject;
             if (gameObject == null) return false;
-            var animator = gameObject.GetComponentInParent<Animator>();
+            var animator = gameObject.GetComponentInParent<Animator>(true);
             if (animator == null) return false;
             if ((animator.runtimeAnimatorController as UnityEditor.Animations.AnimatorController) != null) return true;
             var activeController = WindowPatchReflection.GetOpenController();
             if (activeController == null) return false;
-            var descriptor = gameObject.GetComponentInParent<VRCAvatarDescriptor>();
+            var descriptor = gameObject.GetComponentInParent<VRCAvatarDescriptor>(true);
             if (descriptor == null) return false;
             return descriptor.baseAnimationLayers.Concat(descriptor.specialAnimationLayers)
                 .Any(layer => layer.animatorController as UnityEditor.Animations.AnimatorController == activeController);

@@ -424,15 +424,70 @@ namespace YGDR.Editor.Animation
         static GUIContent _frameIcon;
         internal static GUIContent FrameIcon => _frameIcon ??= EditorGUIUtility.IconContent("animationdopesheetkeyframe");
 
+        // Cache 1: FrameLayoutData — LoadAllAssetsAtPath is expensive; load once per frame per controller
+        static AnimatorController _frameDataCachedController;
+        static FrameLayoutData    _frameDataCache;
+        static int                _frameDataCachedFrame = -1;
+
+        // Cache 2: WD counts — recursive SM traversal; recompute only on undo/asset change
+        static readonly Dictionary<(AnimatorStateMachine sm, bool includeBT), (int on, int off)> _wdCache = new();
+
+        // Cache 3: HasFrameData per SM — LINQ + ActiveSMReachable traversal; recompute only on undo/asset change
+        static readonly Dictionary<AnimatorStateMachine, bool> _hasFrameDataCache = new();
+
+        // Cache 4: m_AnimatorController FieldInfo — avoids Traverse allocation + string field lookup per layer
+        static FieldInfo _animatorControllerField;
+
+        // Cache 5: GUIStyle CalcSize results — IconContent + CalcSize per layer is not free
+        static float _cachedGearWidth   = -1f;
+        static float _cachedWdWidth     = -1f;
+        static float _cachedEmptyWidth  = -1f;
+
+        static PatchLayerWDIndicator()
+        {
+            Undo.undoRedoPerformed += InvalidateCaches;
+            ObjectChangeEvents.changesPublished += (ref ObjectChangeEventStream _) => InvalidateCaches();
+        }
+
+        static void InvalidateCaches()
+        {
+            _wdCache.Clear();
+            _hasFrameDataCache.Clear();
+        }
+
         internal static bool IsEmpty(AnimatorStateMachine sm) =>
             sm.states.Length == 0 && sm.stateMachines.Length == 0;
 
+        static FrameLayoutData GetCachedFrameLayoutData(AnimatorController controller)
+        {
+            int currentFrame = Time.frameCount;
+            if (_frameDataCachedFrame == currentFrame && _frameDataCachedController == controller)
+                return _frameDataCache;
+            _frameDataCachedController = controller;
+            _frameDataCachedFrame      = currentFrame;
+            _frameDataCache            = AssetDatabase.LoadAllAssetsAtPath(AssetDatabase.GetAssetPath(controller))
+                .OfType<FrameLayoutData>().FirstOrDefault();
+            return _frameDataCache;
+        }
+
         internal static bool HasFrameData(AnimatorStateMachine sm, AnimatorController controller)
         {
-            var frameLayoutData = AssetDatabase.LoadAllAssetsAtPath(AssetDatabase.GetAssetPath(controller))
-                .OfType<FrameLayoutData>().FirstOrDefault();
-            return frameLayoutData != null && frameLayoutData.frames.Any(frame =>
+            if (_hasFrameDataCache.TryGetValue(sm, out bool cached)) return cached;
+            var frameLayoutData = GetCachedFrameLayoutData(controller);
+            bool result = frameLayoutData != null && frameLayoutData.frames.Any(frame =>
                 frame.layerStateMachine == sm && FrameRenderer.ActiveSMReachable(sm, frame.activeSM));
+            _hasFrameDataCache[sm] = result;
+            return result;
+        }
+
+        internal static (int on, int off) GetOrComputeWD(AnimatorStateMachine sm, bool includeBlendTrees)
+        {
+            var key = (sm, includeBlendTrees);
+            if (_wdCache.TryGetValue(key, out var cached)) return cached;
+            int on = 0, off = 0;
+            CountWD(sm, ref on, ref off, includeBlendTrees);
+            _wdCache[key] = (on, off);
+            return (on, off);
         }
 
         [HarmonyTargetMethod]
@@ -443,6 +498,7 @@ namespace YGDR.Editor.Animation
         static void Prefix(object __instance, Rect rect, int index, bool selected, bool focused)
         {
             if (EditorApplication.isPlaying) return;
+            if (Event.current.type != EventType.Repaint) return;
 
             var settings = AnimatorDefaultSettings.Load();
             if (!settings.showLayerWDIndicator) return;
@@ -450,12 +506,14 @@ namespace YGDR.Editor.Animation
             try
             {
                 var layerViewHost = WindowPatchReflection.LayerViewHostField.GetValue(__instance);
-                var controller = Traverse.Create(layerViewHost).Field("m_AnimatorController")
-                    .GetValue<AnimatorController>();
+                _animatorControllerField ??= AccessTools.Field(layerViewHost.GetType(), "m_AnimatorController");
+                var controller = _animatorControllerField?.GetValue(layerViewHost) as AnimatorController;
                 if (controller == null || index >= controller.layers.Length) return;
 
                 var stateMachine = controller.layers[index].stateMachine;
-                float gearWidth = EditorStyles.iconButton.CalcSize(EditorGUIUtility.IconContent("d_SettingsIcon")).x;
+                if (_cachedGearWidth < 0f)
+                    _cachedGearWidth = EditorStyles.iconButton.CalcSize(EditorGUIUtility.IconContent("d_SettingsIcon")).x;
+                float gearWidth = _cachedGearWidth;
                 float maskOffset = controller.layers[index].avatarMask != null ? 15f : 0f;
                 float cursorX = rect.xMax - gearWidth - 8f - maskOffset;
 
@@ -464,12 +522,13 @@ namespace YGDR.Editor.Animation
 
                 int writeDefaultsOnCount = 0, writeDefaultsOffCount = 0;
                 if (!isEmpty)
-                    CountWD(stateMachine, ref writeDefaultsOnCount, ref writeDefaultsOffCount, settings.wdIncludeBlendTreeStates);
+                    (writeDefaultsOnCount, writeDefaultsOffCount) = GetOrComputeWD(stateMachine, settings.wdIncludeBlendTreeStates);
                 bool showWD = !isEmpty && writeDefaultsOnCount > 0;
 
                 if (showWD)
                 {
-                    float wdWidth = LabelStyle.CalcSize(WdContent).x;
+                    if (_cachedWdWidth < 0f) _cachedWdWidth = LabelStyle.CalcSize(WdContent).x;
+                    float wdWidth = _cachedWdWidth;
                     var wdRect = new Rect(cursorX - wdWidth, rect.yMin + 5f, wdWidth, 16f);
                     LabelStyle.normal.textColor = writeDefaultsOffCount == 0 ? settings.layerWDColor : Color.cyan;
                     EditorGUI.LabelField(wdRect, "WD", LabelStyle);
@@ -485,7 +544,8 @@ namespace YGDR.Editor.Animation
 
                 if (isEmpty)
                 {
-                    float emptyWidth = LabelStyle.CalcSize(EmptyContent).x;
+                    if (_cachedEmptyWidth < 0f) _cachedEmptyWidth = LabelStyle.CalcSize(EmptyContent).x;
+                    float emptyWidth = _cachedEmptyWidth;
                     var emptyRect = new Rect(cursorX - emptyWidth, rect.yMin + 5f, emptyWidth, 16f);
                     LabelStyle.normal.textColor = EmptyColor;
                     EditorGUI.LabelField(emptyRect, "empty", LabelStyle);
@@ -497,7 +557,7 @@ namespace YGDR.Editor.Animation
             }
         }
 
-        internal static void CountWD(AnimatorStateMachine sm, ref int writeDefaultsOnCount, ref int writeDefaultsOffCount, bool includeBlendTrees)
+        static void CountWD(AnimatorStateMachine sm, ref int writeDefaultsOnCount, ref int writeDefaultsOffCount, bool includeBlendTrees)
         {
             foreach (var childState in sm.states)
             {

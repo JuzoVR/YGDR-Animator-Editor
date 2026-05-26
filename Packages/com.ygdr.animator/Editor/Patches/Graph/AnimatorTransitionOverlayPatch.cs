@@ -166,7 +166,7 @@ namespace YGDR.Editor.Animation
                  float outlineWidth = 2f * mult;
 
                  var arrowColor = settings.transitionIndicatorArrowsEnabled
-                     ? PatchDrawArrows.ResolveArrowColor(info, settings) ?? settings.transitionOverlayColor
+                     ? PatchDrawArrows.GetOrResolveArrowColor(info, settings) ?? settings.transitionOverlayColor
                      : settings.transitionOverlayColor;
 
                  var animatedPosition = GetAnimatedArrowPosition(sourcePoint, midPoint, destinationPoint);
@@ -342,6 +342,25 @@ namespace YGDR.Editor.Animation
         static readonly Dictionary<Type, FieldInfo> _transitionsFields = new();
         static readonly Dictionary<Type, FieldInfo> _transitionFields = new();
 
+        // Frame-level cache: ResolveArrowColor called twice per edge per repaint (DrawArrows.Prefix + DrawEdge.Postfix)
+        // info objects are stable within a repaint pass; color is selection-independent so safe to cache
+        static readonly Dictionary<object, Color?> _arrowColorCache = new();
+        static int _arrowColorCacheFrame = -1;
+
+        internal static Color? GetOrResolveArrowColor(object info, AnimatorDefaultSettings settings)
+        {
+            int currentFrame = Time.frameCount;
+            if (_arrowColorCacheFrame != currentFrame)
+            {
+                _arrowColorCache.Clear();
+                _arrowColorCacheFrame = currentFrame;
+            }
+            if (_arrowColorCache.TryGetValue(info, out var cached)) return cached;
+            var result = ResolveArrowColor(info, settings);
+            _arrowColorCache[info] = result;
+            return result;
+        }
+
         [HarmonyTargetMethod]
         static MethodBase TargetMethod() => GraphPatchReflection.DrawArrowsMethod;
 
@@ -352,7 +371,7 @@ namespace YGDR.Editor.Animation
             {
                 var settings = AnimatorDefaultSettings.Load();
                 if (!settings.transitionOverlayEnabled || !settings.transitionIndicatorArrowsEnabled || info == null) return;
-                var resolved = ResolveArrowColor(info, settings);
+                var resolved = GetOrResolveArrowColor(info, settings);
                 if (resolved.HasValue)
                     color = resolved.Value;
             }

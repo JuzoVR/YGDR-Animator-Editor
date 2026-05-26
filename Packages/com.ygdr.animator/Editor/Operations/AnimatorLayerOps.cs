@@ -110,26 +110,34 @@ namespace YGDR.Editor.Animation
         }
 
         /* For each selected transition, adds a copy pointing to each new destination state with all settings preserved.
+           Handles both state-owned and anyState-owned transitions.
            Original transitions are not removed. */
         internal static void RedirectTransitions(AnimatorStateMachine activeSM, AnimatorStateTransition[] transitions, AnimatorState[] destinationStates)
         {
             if (transitions == null || destinationStates == null || destinationStates.Length == 0) return;
 
             var transitionOwnerMap = BuildTransitionOwnerMap(activeSM);
-            var validPairs = transitions
+            var anyStateTransitionSet = new HashSet<AnimatorStateTransition>(activeSM.anyStateTransitions);
+
+            var statePairs = transitions
                 .Where(transition => transition != null)
                 .Select(transition => (
                     sourceState: transitionOwnerMap.TryGetValue(transition, out var s) ? s : null,
                     originalTransition: transition))
                 .Where(pair => pair.sourceState != null)
                 .ToList();
-            if (validPairs.Count == 0) return;
 
-            var undoTargets = validPairs.Select(pair => (Object)pair.sourceState).Distinct()
+            var anyStatePairs = transitions
+                .Where(transition => transition != null && anyStateTransitionSet.Contains(transition))
+                .ToList();
+
+            if (statePairs.Count == 0 && anyStatePairs.Count == 0) return;
+
+            var undoTargets = statePairs.Select(pair => (Object)pair.sourceState).Distinct()
                 .Concat(new Object[] { activeSM }).ToArray();
             Undo.RegisterCompleteObjectUndo(undoTargets, "Redirect Transitions");
 
-            foreach (var (sourceState, originalTransition) in validPairs)
+            foreach (var (sourceState, originalTransition) in statePairs)
                 foreach (var destinationState in destinationStates)
                 {
                     var newTransition = sourceState.AddTransition(destinationState);
@@ -138,34 +146,124 @@ namespace YGDR.Editor.Animation
                     EditorUtility.SetDirty(sourceState);
                 }
 
+            foreach (var originalTransition in anyStatePairs)
+                foreach (var destinationState in destinationStates)
+                {
+                    var newTransition = activeSM.AddAnyStateTransition(destinationState);
+                    Undo.RegisterCreatedObjectUndo(newTransition, "Redirect Transitions");
+                    AnimatorTransitionOps.CopySettings(newTransition, originalTransition);
+                }
+
             EditorUtility.SetDirty(activeSM);
+            RebuildAnimatorGraph();
+        }
+
+        /* Creates an exit transition from each source state for every selected transition, copying all settings.
+           AnyState-owned transitions are skipped — AnyState cannot target Exit via Unity API. */
+        internal static void RedirectTransitionsToExit(AnimatorStateMachine activeSM, AnimatorStateTransition[] transitions)
+        {
+            if (transitions == null) return;
+
+            var transitionOwnerMap = BuildTransitionOwnerMap(activeSM);
+
+            var statePairs = transitions
+                .Where(transition => transition != null)
+                .Select(transition => (
+                    sourceState: transitionOwnerMap.TryGetValue(transition, out var s) ? s : null,
+                    originalTransition: transition))
+                .Where(pair => pair.sourceState != null)
+                .ToList();
+
+            if (statePairs.Count == 0) return;
+
+            var undoTargets = statePairs.Select(pair => (Object)pair.sourceState).Distinct()
+                .Concat(new Object[] { activeSM }).ToArray();
+            Undo.RegisterCompleteObjectUndo(undoTargets, "Redirect Transitions");
+
+            foreach (var (sourceState, originalTransition) in statePairs)
+            {
+                var newTransition = sourceState.AddExitTransition();
+                Undo.RegisterCreatedObjectUndo(newTransition, "Redirect Transitions");
+                AnimatorTransitionOps.CopySettings(newTransition, originalTransition);
+                EditorUtility.SetDirty(sourceState);
+            }
+
+            EditorUtility.SetDirty(activeSM);
+            RebuildAnimatorGraph();
+        }
+
+        static void RebuildAnimatorGraph()
+        {
+            if (AnimatorEditorInit.AnimatorControllerToolType == null) return;
+            var animatorWindow = Resources.FindObjectsOfTypeAll(AnimatorEditorInit.AnimatorControllerToolType)
+                .FirstOrDefault() as EditorWindow;
+            if (animatorWindow == null) return;
+            GraphPatchReflection.RebuildGraphMethod?.Invoke(animatorWindow, new object[] { false });
         }
 
         /* Duplicates each selected transition onto every new source state, keeping the original destinations and all settings.
+           Handles state, exit, and sub-SM destinations.
            Original transitions on the original sources are not removed. */
         internal static void ReplicateTransitions(AnimatorStateMachine activeSM, AnimatorStateTransition[] transitions, AnimatorState[] newSourceStates)
         {
             if (transitions == null || newSourceStates == null || newSourceStates.Length == 0) return;
 
-            var validPairs = transitions
-                .Where(transition => transition != null && transition.destinationState != null)
-                .Select(transition => (destinationState: transition.destinationState, originalTransition: transition))
+            var validTransitions = transitions
+                .Where(transition => transition != null &&
+                    (transition.destinationState != null || transition.isExit || transition.destinationStateMachine != null))
                 .ToList();
-            if (validPairs.Count == 0) return;
+            if (validTransitions.Count == 0) return;
 
             var undoTargets = newSourceStates.Cast<Object>().Concat(new Object[] { activeSM }).ToArray();
             Undo.RegisterCompleteObjectUndo(undoTargets, "Replicate Transitions");
 
-            foreach (var (destinationState, originalTransition) in validPairs)
+            foreach (var originalTransition in validTransitions)
                 foreach (var sourceState in newSourceStates)
                 {
-                    var newTransition = sourceState.AddTransition(destinationState);
+                    AnimatorStateTransition newTransition;
+                    if (originalTransition.isExit)
+                        newTransition = sourceState.AddExitTransition();
+                    else if (originalTransition.destinationStateMachine != null)
+                        newTransition = sourceState.AddTransition(originalTransition.destinationStateMachine);
+                    else
+                        newTransition = sourceState.AddTransition(originalTransition.destinationState);
+
                     Undo.RegisterCreatedObjectUndo(newTransition, "Replicate Transitions");
                     AnimatorTransitionOps.CopySettings(newTransition, originalTransition);
                     EditorUtility.SetDirty(sourceState);
                 }
 
             EditorUtility.SetDirty(activeSM);
+        }
+
+        /* Duplicates each selected transition as an AnyState transition, copying original destinations and all settings.
+           Exit destinations are skipped — AnyState cannot target Exit via Unity API. */
+        internal static void ReplicateTransitionsFromAnyState(AnimatorStateMachine activeSM, AnimatorStateTransition[] transitions)
+        {
+            if (transitions == null) return;
+
+            var validTransitions = transitions
+                .Where(transition => transition != null &&
+                    (transition.destinationState != null || transition.destinationStateMachine != null))
+                .ToList();
+            if (validTransitions.Count == 0) return;
+
+            Undo.RegisterCompleteObjectUndo(new Object[] { activeSM }, "Replicate Transitions");
+
+            foreach (var originalTransition in validTransitions)
+            {
+                AnimatorStateTransition newTransition;
+                if (originalTransition.destinationStateMachine != null)
+                    newTransition = activeSM.AddAnyStateTransition(originalTransition.destinationStateMachine);
+                else
+                    newTransition = activeSM.AddAnyStateTransition(originalTransition.destinationState);
+
+                Undo.RegisterCreatedObjectUndo(newTransition, "Replicate Transitions");
+                AnimatorTransitionOps.CopySettings(newTransition, originalTransition);
+            }
+
+            EditorUtility.SetDirty(activeSM);
+            RebuildAnimatorGraph();
         }
 
         /* Recursively searches the SM hierarchy to find which state owns the given transition.

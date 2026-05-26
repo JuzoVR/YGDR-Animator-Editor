@@ -473,6 +473,17 @@ namespace YGDR.Editor.Animation
                 return;
             }
 
+            bool parameterExists = _controller.parameters.Any(x => x.name == condition.parameter);
+            if (!parameterExists)
+            {
+                var previousColor = GUI.color;
+                GUI.color = Color.red;
+                GUI.Label(parameterRect, condition.parameter, EditorStyles.miniLabel);
+                GUI.color = previousColor;
+                CursorBtn(removeRect, "−", Styles.CondBtn);
+                return;
+            }
+
             var capturedEntry = entry;
             var capturedCondition = condition;
             if (EditorGUI.DropdownButton(parameterRect, new GUIContent(condition.parameter), FocusType.Passive))

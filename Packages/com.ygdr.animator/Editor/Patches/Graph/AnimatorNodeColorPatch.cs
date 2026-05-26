@@ -128,7 +128,7 @@ namespace YGDR.Editor.Animation
             return true;
         }
 
-        internal static void HandleTextures() => Rebuild();
+        internal static void HandleTextures() { Rebuild(); EnsureBaseTextures(); }
         internal static bool HasTextures()    => _baseNode != null;
         internal static void Invalidate()     => Rebuild();
 
