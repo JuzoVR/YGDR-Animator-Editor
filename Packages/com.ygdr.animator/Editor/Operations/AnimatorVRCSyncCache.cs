@@ -184,6 +184,45 @@ namespace YGDR.Editor.Animation
             return _valueTypeMap.TryGetValue(paramName, out valueType);
         }
 
+        internal static GameObject GetVrcFuryComponentHost() =>
+            _isVrcFurySource ? _cachedSelectedGO : null;
+
+        internal static List<VRCExpressionsMenu> GetVrcFuryExpressionsMenus()
+        {
+            var result = new List<VRCExpressionsMenu>();
+            if (!_isVrcFurySource || _cachedSelectedGO == null) return result;
+
+            var vrcfuryType = AccessTools.TypeByName("VF.Model.VRCFury");
+            if (vrcfuryType == null) return result;
+
+            var getAllFeaturesMethod = AccessTools.Method(vrcfuryType, "GetAllFeatures");
+            if (getAllFeaturesMethod == null) return result;
+
+            foreach (var component in _cachedSelectedGO.GetComponents(vrcfuryType))
+            {
+                var features = getAllFeaturesMethod.Invoke(component, null) as System.Collections.IEnumerable;
+                if (features == null) continue;
+
+                foreach (var feature in features)
+                {
+                    if (feature?.GetType().FullName != "VF.Model.Feature.FullController") continue;
+                    var menuEntries = AccessTools.Field(feature.GetType(), "menus")?.GetValue(feature) as System.Collections.IEnumerable;
+                    if (menuEntries == null) continue;
+
+                    foreach (var menuEntry in menuEntries)
+                    {
+                        if (menuEntry == null) continue;
+                        var guidMenu = AccessTools.Field(menuEntry.GetType(), "menu")?.GetValue(menuEntry);
+                        if (guidMenu == null) continue;
+                        var expressionsMenu = AccessTools.Field(guidMenu.GetType(), "objRef")?.GetValue(guidMenu) as VRCExpressionsMenu;
+                        if (expressionsMenu != null) result.Add(expressionsMenu);
+                    }
+                }
+            }
+
+            return result;
+        }
+
         internal static VRCExpressionParameters GetExpressionParameters()
         {
             if (_cachedAvatarRoot == null) return null;
@@ -205,6 +244,28 @@ namespace YGDR.Editor.Animation
                     if (layer.animatorController == openController) { controllerMatches = true; break; }
 
             return controllerMatches ? avatarDescriptor.expressionParameters : null;
+        }
+
+        internal static VRCExpressionsMenu GetExpressionsMenu()
+        {
+            if (_cachedAvatarRoot == null) return null;
+            var avatarDescriptor = _cachedAvatarRoot.GetComponent<VRCAvatarDescriptor>();
+            if (avatarDescriptor == null) return null;
+            if (_isVrcFurySource) return null;
+
+            var openController = WindowPatchReflection.GetOpenController();
+            if (openController == null) return null;
+
+            bool controllerMatches = avatarDescriptor.GetComponent<Animator>()?.runtimeAnimatorController
+                as AnimatorController == openController;
+            if (!controllerMatches)
+                foreach (var layer in avatarDescriptor.baseAnimationLayers)
+                    if (layer.animatorController == openController) { controllerMatches = true; break; }
+            if (!controllerMatches)
+                foreach (var layer in avatarDescriptor.specialAnimationLayers)
+                    if (layer.animatorController == openController) { controllerMatches = true; break; }
+
+            return controllerMatches ? avatarDescriptor.expressionsMenu : null;
         }
     }
 }

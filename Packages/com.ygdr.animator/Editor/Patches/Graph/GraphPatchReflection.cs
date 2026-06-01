@@ -70,6 +70,12 @@ namespace YGDR.Editor.Animation
             AccessTools.Field(AnimatorEditorInit.StateNodeType, "state");
         internal static readonly FieldInfo StateMachineNodeStateMachineField =
             AccessTools.Field(AnimatorEditorInit.StateMachineNodeType, "stateMachine");
+
+        // ── StateNode / AnyStateNode methods ─────────────────────────────────
+        internal static readonly MethodInfo MakeTransitionCallbackMethod =
+            AccessTools.Method(AnimatorEditorInit.StateNodeType, "MakeTransitionCallback");
+        internal static readonly MethodInfo AnyStateMakeTransitionCallbackMethod =
+            AccessTools.Method(AnimatorEditorInit.AnyStateNodeType, "MakeTransitionCallback");
     }
 }
 #endif

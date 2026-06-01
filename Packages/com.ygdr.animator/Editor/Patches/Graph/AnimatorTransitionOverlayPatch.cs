@@ -349,6 +349,7 @@ namespace YGDR.Editor.Animation
 
         internal static Color? GetOrResolveArrowColor(object info, AnimatorDefaultSettings settings)
         {
+            if (info == null) return null;
             int currentFrame = Time.frameCount;
             if (_arrowColorCacheFrame != currentFrame)
             {

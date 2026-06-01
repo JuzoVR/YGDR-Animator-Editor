@@ -22,6 +22,7 @@ namespace YGDR.Editor.Animation
         [SerializeField] internal bool  showParamAapIcons    = true;
         [SerializeField] internal bool  showParamVrcComponentIcons = true;
         [SerializeField] internal bool  showParamBudget           = false;
+        [SerializeField] internal bool  showParamUnusedIcon       = true;
         [SerializeField] internal Color paramColorFloat    = new Color(0.35f, 0.75f, 0.35f, 1f);
         [SerializeField] internal Color paramColorInt      = new Color(0.35f, 0.60f, 1.00f, 1f);
         [SerializeField] internal Color paramColorBool     = new Color(1.00f, 0.55f, 0.20f, 1f);

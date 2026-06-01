@@ -80,6 +80,14 @@ namespace YGDR.Editor.Animation
                     }
                     menu.AddItem(new GUIContent("Delete layer"), false,
                         () => _deleteLayerMethod?.Invoke(instance, null));
+                    if (AnimatorDefaultSettings.Load().layerTemplateButtonEnabled)
+                    {
+                        var controller   = WindowPatchReflection.GetOpenController();
+                        int capturedIndex = index;
+                        menu.AddSeparator("");
+                        menu.AddItem(new GUIContent("Create Template"), false, () =>
+                            AnimatorTemplateParameterWindow.OpenCreate(controller, capturedIndex));
+                    }
                     menu.ShowAsContext();
                 }
 

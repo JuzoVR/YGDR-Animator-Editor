@@ -216,14 +216,32 @@ namespace YGDR.Editor.Animation
     [HarmonyPriority(Priority.Low)]
     internal static class PatchLayerRightClick
     {
+        static readonly MethodInfo _deleteLayerMethod =
+            AccessTools.Method(WindowPatchReflection.LayerControllerViewType, "DeleteLayer");
+
         [HarmonyTargetMethod]
         static MethodBase TargetMethod() =>
             AccessTools.Method(WindowPatchReflection.LayerControllerViewType, "OnGUI");
 
         [HarmonyPrefix]
-        static void Prefix(object __instance)
+        static void Prefix(object __instance, Rect rect)
         {
-            // Template items merged into PatchLayerCopyPaste to avoid overriding copy/paste items.
+            try
+            {
+                var currentEvent = Event.current;
+                if (currentEvent.type != EventType.KeyDown || currentEvent.keyCode != KeyCode.Delete) return;
+
+                var reorderableList = WindowPatchReflection.LayerListField?.GetValue(__instance)
+                    as UnityEditorInternal.ReorderableList;
+                if (reorderableList == null || !reorderableList.HasKeyboardControl()) return;
+
+                _deleteLayerMethod?.Invoke(__instance, null);
+                currentEvent.Use();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[AnimatorTools] PatchLayerRightClick delete: {e}");
+            }
         }
     }
 

@@ -67,6 +67,9 @@ namespace YGDR.Editor.Animation
         static GUIContent _clipUsesIcon;
         static GUIContent ClipUsesIcon => _clipUsesIcon ??= EditorGUIUtility.IconContent("d_unityeditor.graphs.animatorcontrollertool@2x");
 
+        static GUIContent _unusedParamIcon;
+        static GUIContent UnusedParamIcon => _unusedParamIcon ??= EditorGUIUtility.IconContent("d_p4_local@2x");
+
         static GUIContent _vrcComponentIcon;
         static GUIContent VrcComponentIcon => _vrcComponentIcon ??= EditorGUIUtility.IconContent("templatecontainer@2x");
 
@@ -79,13 +82,16 @@ namespace YGDR.Editor.Animation
         static int _clipCacheControllerId = -1;
         static HashSet<string> _clipUsedParams;
 
+        static int _conditionCacheControllerId = -1;
+        static HashSet<string> _conditionUsedParams;
+
         internal static AnimatorController ViewFrameController;
         internal static HashSet<string> ViewFrameClipUsedParams;
 
         static PatchParameterRow()
         {
-            Undo.undoRedoPerformed += () => _clipCacheControllerId = -1;
-            ObjectChangeEvents.changesPublished += (ref ObjectChangeEventStream stream) => _clipCacheControllerId = -1;
+            Undo.undoRedoPerformed += () => { _clipCacheControllerId = -1; _conditionCacheControllerId = -1; };
+            ObjectChangeEvents.changesPublished += (ref ObjectChangeEventStream stream) => { _clipCacheControllerId = -1; _conditionCacheControllerId = -1; };
             EditorApplication.hierarchyChanged += () => _vrcComponentNeedsRebuild = true;
             ObjectChangeEvents.changesPublished += (ref ObjectChangeEventStream stream) =>
             {
@@ -145,6 +151,58 @@ namespace YGDR.Editor.Animation
                     CollectMotionParams(childMotion.motion, result);
         }
 
+        internal static HashSet<string> GetConditionUsedParams(AnimatorController controller)
+        {
+            int controllerId = controller.GetInstanceID();
+            if (_conditionCacheControllerId == controllerId && _conditionUsedParams != null) return _conditionUsedParams;
+            _conditionCacheControllerId = controllerId;
+            _conditionUsedParams = new HashSet<string>();
+            foreach (var layer in controller.layers)
+                CollectConditionParams(layer.stateMachine, _conditionUsedParams);
+            return _conditionUsedParams;
+        }
+
+        static void CollectConditionParams(AnimatorStateMachine stateMachine, HashSet<string> result)
+        {
+            foreach (var transition in stateMachine.anyStateTransitions)
+                foreach (var condition in transition.conditions)
+                    result.Add(condition.parameter);
+            foreach (var transition in stateMachine.entryTransitions)
+                foreach (var condition in transition.conditions)
+                    result.Add(condition.parameter);
+            foreach (var childState in stateMachine.states)
+            {
+                var state = childState.state;
+                foreach (var transition in state.transitions)
+                    foreach (var condition in transition.conditions)
+                        result.Add(condition.parameter);
+                if (state.speedParameterActive && !string.IsNullOrEmpty(state.speedParameter))
+                    result.Add(state.speedParameter);
+                if (state.timeParameterActive && !string.IsNullOrEmpty(state.timeParameter))
+                    result.Add(state.timeParameter);
+                if (state.mirrorParameterActive && !string.IsNullOrEmpty(state.mirrorParameter))
+                    result.Add(state.mirrorParameter);
+                if (state.cycleOffsetParameterActive && !string.IsNullOrEmpty(state.cycleOffsetParameter))
+                    result.Add(state.cycleOffsetParameter);
+                CollectBlendTreeConditionParams(state.motion, result);
+            }
+            foreach (var childStateMachine in stateMachine.stateMachines)
+                CollectConditionParams(childStateMachine.stateMachine, result);
+        }
+
+        static void CollectBlendTreeConditionParams(Motion motion, HashSet<string> result)
+        {
+            if (motion is BlendTree blendTree)
+            {
+                if (!string.IsNullOrEmpty(blendTree.blendParameter))
+                    result.Add(blendTree.blendParameter);
+                if (!string.IsNullOrEmpty(blendTree.blendParameterY))
+                    result.Add(blendTree.blendParameterY);
+                foreach (var child in blendTree.children)
+                    CollectBlendTreeConditionParams(child.motion, result);
+            }
+        }
+
         static bool VrcTypesMatch(AnimatorControllerParameterType animType, VRCExpressionParameters.ValueType vrcType) =>
             animType switch
             {
@@ -193,9 +251,10 @@ namespace YGDR.Editor.Animation
                 bool showVrc  = settings.showParamVrcIcons;
                 bool showAap  = settings.showParamAapIcons;
                 bool showVrcComponent = settings.showParamVrcComponentIcons;
+                bool showUnused = settings.showParamUnusedIcon;
 
                 bool hasSyncData = VRCSyncCache.TryGetSync(parameter.name, out bool isSynced);
-                if (!hasSyncData && !showType && !showVrc && !showAap && !showVrcComponent) return;
+                if (!hasSyncData && !showType && !showVrc && !showAap && !showVrcComponent && !showUnused) return;
 
                 VRCExpressionParameters.ValueType vrcValueType = default;
                 bool hasMismatch = showType
@@ -292,6 +351,17 @@ namespace YGDR.Editor.Animation
                     {
                         Event.current.Use();
                         AnimatorFindUsageWindow.OpenAap(parameter, ViewFrameController);
+                    }
+                }
+
+                if (showUnused && ViewFrameController != null)
+                {
+                    var conditionUsedParams = GetConditionUsedParams(ViewFrameController);
+                    if (!conditionUsedParams.Contains(parameter.name))
+                    {
+                        cursorX -= clipIconSize;
+                        GUI.Label(new Rect(cursorX, rect.y + (rect.height - clipIconSize) * 0.5f, clipIconSize, clipIconSize), UnusedParamIcon);
+                        cursorX -= iconPadding;
                     }
                 }
             }
@@ -453,6 +523,7 @@ namespace YGDR.Editor.Animation
                             AnimatorParameterOps.RemapDriverParametersInStateMachine(layer.stateMachine, oldNames[j], newNames[j]);
                         if (PatchParameterRow.GetVrcComponentUsedParams().Contains(oldNames[j]))
                             AnimatorFindUsageWindow.RemapVrcComponentParameters(oldNames[j], newNames[j]);
+                        AnimatorParameterOps.RenameVrcParameters(oldNames[j], newNames[j]);
                         if (!_isProcessingSiblingRenames)
                             TryRenameSiblingVariants(controller, newNames, oldNames[j], newNames[j]);
                         EditorUtility.SetDirty(controller);
@@ -569,12 +640,33 @@ namespace YGDR.Editor.Animation
             else
                 menu.AddDisabledItem(new GUIContent("Find Effecting Objects"));
 
-            var clipUsedParams = PatchParameterRow.ViewFrameClipUsedParams;
-            if (clipUsedParams != null && clipUsedParams.Contains(parameter.name))
-                menu.AddItem(new GUIContent("Find AAP Uses"), false,
-                    () => AnimatorFindUsageWindow.OpenAap(capturedFindParameter, capturedFindController));
-            else
-                menu.AddDisabledItem(new GUIContent("Find AAP Uses"));
+            if (parameter.type == AnimatorControllerParameterType.Float)
+            {
+                var  clipUsedParams   = PatchParameterRow.ViewFrameClipUsedParams;
+                bool parameterIsAAPLinked = clipUsedParams != null && clipUsedParams.Contains(parameter.name);
+
+                if (parameterIsAAPLinked)
+                    menu.AddItem(new GUIContent("Find AAP Uses"), false,
+                        () => AnimatorFindUsageWindow.OpenAap(capturedFindParameter, capturedFindController));
+
+                var capturedAAPParam = parameter;
+                menu.AddItem(new GUIContent("Create AAP"), false, static data =>
+                {
+                    var (aapController, aapParam, screenPos) = ((AnimatorController, AnimatorControllerParameter, Vector2))data;
+                    EditorApplication.delayCall += () =>
+                        new ClipDropdown(aapController, aapParam).ShowWithCheckmarks(new Rect(screenPos, Vector2.zero));
+                }, (capturedFindController, capturedAAPParam, capturedScreenPos));
+
+                if (parameterIsAAPLinked)
+                    menu.AddItem(new GUIContent("Remove AAP"), false, static data =>
+                    {
+                        var (aapController, aapParam, screenPos) = ((AnimatorController, AnimatorControllerParameter, Vector2))data;
+                        EditorApplication.delayCall += () =>
+                            ClipDropdown.ForRemove(aapController, aapParam).ShowWithCheckmarks(new Rect(screenPos, Vector2.zero));
+                    }, (capturedFindController, capturedAAPParam, capturedScreenPos));
+                else
+                    menu.AddDisabledItem(new GUIContent("Remove AAP"));
+            }
 
             menu.AddSeparator("");
             menu.AddItem(new GUIContent("Remap to Parameter"), false, static data =>
@@ -686,6 +778,7 @@ namespace YGDR.Editor.Animation
                     AnimatorParameterOps.RemapParameter(controller, oldSiblingName, newSiblingName);
                     if (PatchParameterRow.GetVrcComponentUsedParams().Contains(oldSiblingName))
                         AnimatorFindUsageWindow.RemapVrcComponentParameters(oldSiblingName, newSiblingName);
+                    AnimatorParameterOps.RenameVrcParameters(oldSiblingName, newSiblingName);
                 }
 
                 EditorUtility.SetDirty(controller);

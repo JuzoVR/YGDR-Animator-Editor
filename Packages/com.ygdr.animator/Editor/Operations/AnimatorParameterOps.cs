@@ -2,6 +2,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using HarmonyLib;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
@@ -364,6 +366,128 @@ namespace YGDR.Editor.Animation
             paramsList.Add(newParam);
             expressionParameters.parameters = paramsList.ToArray();
             EditorUtility.SetDirty(expressionParameters);
+        }
+
+        internal static void RenameVrcParameters(string oldName, string newName)
+        {
+            var expressionParameters = VRCSyncCache.GetExpressionParameters();
+            if (expressionParameters?.parameters != null)
+            {
+                bool modified = false;
+                foreach (var expressionParameter in expressionParameters.parameters)
+                    if (expressionParameter.name == oldName) { modified = true; break; }
+                if (modified)
+                {
+                    Undo.RecordObject(expressionParameters, "Rename VRC Parameter");
+                    foreach (var expressionParameter in expressionParameters.parameters)
+                        if (expressionParameter.name == oldName) { expressionParameter.name = newName; break; }
+                    EditorUtility.SetDirty(expressionParameters);
+                }
+            }
+
+            var visited = new HashSet<int>();
+            var expressionsMenu = VRCSyncCache.GetExpressionsMenu();
+            if (expressionsMenu != null)
+                RenameInMenu(expressionsMenu, oldName, newName, visited);
+
+            foreach (var vrcFuryMenu in VRCSyncCache.GetVrcFuryExpressionsMenus())
+                RenameInMenu(vrcFuryMenu, oldName, newName, visited);
+
+            RenameVrcFuryFeatureParams(oldName, newName);
+        }
+
+        static readonly Dictionary<(string typeName, string fieldName), FieldInfo> _vrcFuryFieldCache = new();
+
+        static void RenameVrcFuryFeatureParams(string oldName, string newName)
+        {
+            var componentHost = VRCSyncCache.GetVrcFuryComponentHost();
+            if (componentHost == null) return;
+
+            var vrcfuryType = AccessTools.TypeByName("VF.Model.VRCFury");
+            if (vrcfuryType == null) return;
+
+            var getAllFeaturesMethod = AccessTools.Method(vrcfuryType, "GetAllFeatures");
+            if (getAllFeaturesMethod == null) return;
+
+            foreach (var component in componentHost.GetComponents(vrcfuryType))
+            {
+                var features = getAllFeaturesMethod.Invoke(component, null) as System.Collections.IEnumerable;
+                if (features == null) continue;
+
+                bool componentModified = false;
+                foreach (var feature in features)
+                {
+                    if (feature == null) continue;
+                    var featureType = feature.GetType();
+                    string typeName = featureType.FullName;
+
+                    string[] fieldsToCheck = typeName switch
+                    {
+                        "VF.Model.Feature.Toggle"           => new[] { "driveGlobalParam", "globalParam" },
+                        "VF.Model.Feature.FullController"   => new[] { "toggleParam", "injectSpsDepthParam", "injectSpsVelocityParam" },
+                        "VF.Model.Feature.MmdCompatibility" => new[] { "globalParam" },
+                        _ => null
+                    };
+
+                    if (fieldsToCheck == null) continue;
+
+                    foreach (var fieldName in fieldsToCheck)
+                    {
+                        var key = (typeName, fieldName);
+                        if (!_vrcFuryFieldCache.TryGetValue(key, out var field))
+                        {
+                            field = AccessTools.Field(featureType, fieldName);
+                            _vrcFuryFieldCache[key] = field;
+                        }
+                        if (field == null) continue;
+                        if (field.GetValue(feature) as string != oldName) continue;
+
+                        if (!componentModified)
+                        {
+                            Undo.RecordObject(component as UnityEngine.Object, "Rename VRC Parameter");
+                            componentModified = true;
+                        }
+                        field.SetValue(feature, newName);
+                    }
+                }
+
+                if (componentModified)
+                    EditorUtility.SetDirty(component as UnityEngine.Object);
+            }
+        }
+
+        static void RenameInMenu(VRCExpressionsMenu menu, string oldName, string newName, HashSet<int> visited)
+        {
+            if (!visited.Add(menu.GetInstanceID())) return;
+
+            bool modified = false;
+            foreach (var control in menu.controls)
+            {
+                if (control.parameter?.name == oldName) { modified = true; break; }
+                if (control.subParameters != null)
+                    foreach (var subParameter in control.subParameters)
+                        if (subParameter?.name == oldName) { modified = true; break; }
+                if (modified) break;
+            }
+
+            if (modified)
+            {
+                Undo.RecordObject(menu, "Rename VRC Parameter");
+                foreach (var control in menu.controls)
+                {
+                    if (control.parameter?.name == oldName)
+                        control.parameter.name = newName;
+                    if (control.subParameters != null)
+                        foreach (var subParameter in control.subParameters)
+                            if (subParameter?.name == oldName)
+                                subParameter.name = newName;
+                }
+                EditorUtility.SetDirty(menu);
+            }
+
+            foreach (var control in menu.controls)
+                if (control.subMenu != null)
+                    RenameInMenu(control.subMenu, oldName, newName, visited);
         }
 
         internal static void SetVrcSynced(VRCExpressionParameters expressionParameters,

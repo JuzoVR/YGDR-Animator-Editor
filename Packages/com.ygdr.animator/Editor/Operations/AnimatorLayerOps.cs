@@ -109,6 +109,28 @@ namespace YGDR.Editor.Animation
             EditorUtility.SetDirty(activeSM);
         }
 
+        /* Adds an anyState transition from activeSM to every destination state. */
+        internal static void MultiTransitionFromAnyState(AnimatorStateMachine activeSM, AnimatorState[] destinationStates)
+        {
+            if (destinationStates == null || destinationStates.Length == 0) return;
+            Undo.RegisterCompleteObjectUndo(activeSM, "Multi Transition");
+            foreach (var destinationState in destinationStates)
+                Undo.RegisterCreatedObjectUndo(activeSM.AddAnyStateTransition(destinationState), "Multi Transition");
+            EditorUtility.SetDirty(activeSM);
+            RebuildAnimatorGraph();
+        }
+
+        /* Adds an exit transition from every source state. */
+        internal static void MultiTransitionToExit(AnimatorStateMachine activeSM, AnimatorState[] sourceStates)
+        {
+            if (sourceStates == null || sourceStates.Length == 0) return;
+            Undo.RegisterCompleteObjectUndo(sourceStates.Cast<Object>().Concat(new Object[] { activeSM }).ToArray(), "Multi Transition");
+            foreach (var sourceState in sourceStates)
+                Undo.RegisterCreatedObjectUndo(sourceState.AddExitTransition(), "Multi Transition");
+            foreach (var sourceState in sourceStates) EditorUtility.SetDirty(sourceState);
+            EditorUtility.SetDirty(activeSM);
+        }
+
         /* For each selected transition, adds a copy pointing to each new destination state with all settings preserved.
            Handles both state-owned and anyState-owned transitions.
            Original transitions are not removed. */

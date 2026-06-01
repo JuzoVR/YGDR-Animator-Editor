@@ -72,6 +72,7 @@ namespace YGDR.Editor.Animation
             DrawOverlayToggle(new Rect(ifRow2Rect.x + 0 * ifColWidth, ifRow2Rect.y, ifColWidth, lineHeight), "Graph Footer",     ref settings.showGraphFooter,            settings);
             DrawOverlayToggle(new Rect(ifRow2Rect.x + 1 * ifColWidth, ifRow2Rect.y, ifColWidth, lineHeight), "VRC Comp Icons",  ref settings.showParamVrcComponentIcons, settings);
             DrawOverlayToggle(new Rect(ifRow2Rect.x + 2 * ifColWidth, ifRow2Rect.y, ifColWidth, lineHeight), "Param Budget",    ref settings.showParamBudget,            settings);
+            DrawOverlayToggle(new Rect(ifRow2Rect.x + 3 * ifColWidth, ifRow2Rect.y, ifColWidth, lineHeight), "Empty Params",    ref settings.showParamUnusedIcon,        settings);
             EditorGUILayout.Space(6);
             DrawPaletteColorRow("Primary",   ref settings.paletteColorPrimary,   AnimatorDefaultSettings.DefaultPrimary,   settings);
             DrawPaletteColorRow("Secondary", ref settings.paletteColorSecondary, AnimatorDefaultSettings.DefaultSecondary, settings);

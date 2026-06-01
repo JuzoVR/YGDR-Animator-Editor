@@ -81,6 +81,7 @@ namespace YGDR.Editor.Animation
 
         static string GetModeText()
         {
+            if (PatchStateChainTransition.FanActive)                return "Fan Mode";
             if (PatchStateChainTransition.ChainActive)              return "Chain Mode";
             if (PatchTransitionCopyPaste.PasteActive)               return $"Paste {PatchTransitionCopyPaste.ClipboardCount} Transition{(PatchTransitionCopyPaste.ClipboardCount == 1 ? "" : "s")}";
             if (PatchStateNodeMenu._multiTransitionSources != null) return "Multi Transition — click destination";

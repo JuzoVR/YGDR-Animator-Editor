@@ -46,6 +46,10 @@ Open via **Window → YGDR → YGDR Animator Editor**, or use menu item in Anima
 | **Interruption Source** | Setting controlling which transitions can override an in-progress transition. |
 | **VRC Parameter Driver** | `StateMachineBehaviour` setting/changing parameter values on state enter/exit. |
 | **VRC Tracking Control** | `StateMachineBehaviour` toggling player tracking vs animation per body region. |
+| **VRC Locomotion Control** | `StateMachineBehaviour` enabling or disabling avatar locomotion. |
+| **VRC Animator Layer Control** | `StateMachineBehaviour` blending a specific animator sub-layer's weight over time. |
+| **VRC Playable Layer Control** | `StateMachineBehaviour` blending an entire playable layer's weight over time. |
+| **VRC Temporary Pose Space** | `StateMachineBehaviour` entering or exiting avatar pose space with optional delay. |
 | **Harmony** | Runtime patching library. Used to inject features into Unity Editor internals. |
 
 ---
@@ -89,22 +93,39 @@ Select one or more state nodes → tab shows properties for all selected. Collap
 
 #### Shared Behaviors
 
-VRC Parameter Drivers, VRC Play Audio, VRC Tracking Control.
-
-**VRC Parameter Driver** — Add or edit shared drivers across selected states. Each row specifies type (`Set` / `Add` / `Random` / `Copy`), parameter name, value. Click `-` to remove row. Removing all rows removes the component. Changes reflect immediately on state's `StateMachineBehaviour`.
+VRC Parameter Drivers, VRC Play Audio, VRC Tracking Control, VRC Locomotion Control, VRC Animator Layer Control, VRC Playable Layer Control, VRC Temporary Pose Space.
 
 > [!IMPORTANT]
-> VRC features require VRChat SDK installed. Without SDK, some features will not work.
+> VRC features require VRChat SDK installed. Without SDK, these sections will not appear.
 
-**VRC Play Audio** — Configure play-audio parameters on shared states (audio source reference, animation clip, parameter name). `-` indicates mixed values.
+Each section has **Add to All** / **Remove All** buttons in its header. Sections only appear when at least one selected state has the component.
 
-**VRC Tracking Control** — Override tracking on shared states for head, hands, feet, hips, fingers, eyes, eyelids, mouth, jaw. Use **Set on All** to apply a value across selected states.
+**VRC Parameter Driver** — Add or edit shared drivers across selected states. Rows are reorderable. Each row specifies type (`Set` / `Add` / `Random`), parameter name, and value. New rows default to the first unused controller parameter. Click `-` to remove a row. Removing all rows removes the component.
+
+**VRC Play Audio** — Configure shared play-audio behaviour: source path (drag `AudioSource` to resolve), playback order, clips list (reorderable), volume/pitch min/max ranges, loop toggle, on-enter/on-exit play/stop flags, delay.
+
+**VRC Tracking Control** — Override tracking on shared states for head, hands, feet, hips, fingers, eyes, eyelids, mouth, jaw. Use **Set All** row to apply one value across all body regions at once.
 
 | Color | Meaning |
 |---|---|
 | Green | Tracking |
 | Yellow | Animation |
-| Blue | Mixed |
+| Blue | Mixed values across selection |
+
+**VRC Locomotion Control** — Enable or disable avatar locomotion. Two-button toggle: **Disable** / **Enable** — active button shows green text.
+
+**VRC Animator Layer Control** — Blend a specific animator sub-layer's weight over time. Fields:
+
+| Field | Description |
+|---|---|
+| Playable | Playable layer to affect |
+| Layer | Index of sub-layer to affect |
+| Goal Weight | Target weight (0–1 slider) |
+| Blend Duration | Time in seconds to reach goal weight |
+
+**VRC Playable Layer Control** — Blend an entire playable layer's weight over time (Action / FX / Gesture / Additive). Fields: Layer enum, Goal Weight (0–1 slider), Blend Duration.
+
+**VRC Temporary Pose Space** — Enter or exit avatar pose space. Two-button toggle: **Enter** / **Exit** — active button shows green text. Fixed Delay toggle switches delay interpretation between seconds and normalized %.  
 
 ---
 
@@ -233,7 +254,7 @@ Right-click any layer row to access:
 - **Paste Layer** — Pastes copied layer as new layer below current. Cross-controller paste auto-adds referenced parameters to destination.
 - **Paste Layer Settings** — Applies only layer properties (avatar mask, blend mode, weight, IK pass, sync settings) from clipboard. Does not replace states.
 - **Delete Layer** — Removes layer.
-- **Create Template** *(visible when Layer Templates enabled)* — click opens parameter-mapping window. Saves current layer as user template.
+- **Create Template** *(visible when Layer Templates enabled)* — click opens parameter-mapping window. Saves current layer as user template. Seperate new layer name with `.` or `/` to create submenu heirarchy
 
 ### Layer Templates
 
@@ -275,7 +296,7 @@ Right-click a state node:
 - **Set Clip Loop Time** — Toggle loop time on all clips used by selected states.
 - **Pack into Sub-State Machine** — Select 2+ states → right-click → groups into new sub-state machine. Node positions preserved within bounding box. Fully undoable.
 - **Select Transitions** — Submenu: all incoming / outgoing / shared transitions for selected nodes.
-- **Copy / Paste Behaviors** — Copy `StateMachineBehaviour`s (VRC drivers, tracking, audio) → paste onto other states. Menu shows types: Param Drivers, Audio, Tracking.
+- **Copy / Paste Behaviors** — Copy `StateMachineBehaviour(s)` → paste onto other states. Menu shows all 7 supported types: Param Drivers, Play Audio, Tracking Control, Locomotion Control, Animator Layer Control, Playable Layer Control, Temporary Pose Space.
 - **Multi-Transition** — Select source node → click menu item → select other nodes → invoke menu item again → creates transitions from source to all destinations.
 
 ##### Pack / Unpack Diagram
@@ -343,11 +364,34 @@ Click 1: A    Click 2: B       Click 3: C               Esc
 ```
 
 > [!TIP]
-> Combine Chain Mode with copy-paste transitions to rapidly build symmetric state machines.
+> Combine new node double click with Chain Mode transitions to rapidly build framework state machines.
+
+#### Fan Transition Mode
+
+<kbd>Shift</kbd>+<kbd>Double-click</kbd> on state node:
+
+1. Click destination node → transition created from source.
+2. Continue clicking destinations → each creates another transition from the same source.
+3. Press <kbd>Esc</kbd> to exit.
+
+Preview line follows cursor while active. Bottom bar shows `Fan Mode`.
+
+```
+Click 1: B    Click 2: C         Esc
+              ┌───┐  ┌───┐       done
+┌───┐  ┌───┐  │ A │→ │ B │
+│ A │→ │ B │  │   │  └───┘
+└───┘  └───┘  │   │→ ┌───┐
+              └───┘  │ C │
+                     └───┘
+```
+
+> [!TIP]
+> Use Fan Mode to quickly wire one hub state (e.g. idle) to many destinations in one pass.
 
 #### Copy-Paste Transitions
 
-Select one or more transition arrows → <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy. click source → <kbd>Ctrl</kbd>+<kbd>V</kbd> → click destination → transitions paste with all conditions intact. Visual preview shows landing position. <kbd>Esc</kbd> cancels. Bottom bar shows `Paste N Transitions`.
+Select one or more transitions → <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy. click source → <kbd>Ctrl</kbd>+<kbd>V</kbd> → click destination → transitions paste with all conditions intact. Visual preview shows landing position. <kbd>Esc</kbd> cancels. Bottom bar shows `Paste N Transitions`.
 
 ### Inline Renaming
 
@@ -391,10 +435,10 @@ Graph bottom bar displays:
 | Position | Content |
 |---|---|
 | Left | Selected states/transitions count |
-| Center | Active mode label (normal, chain, paste, etc.) |
+| Center | Active mode label (normal, chain, fan, paste, etc.) |
 | Right | Controller path (clickable → pings controller in Project) |
 
-Chain mode, copy-paste mode, and other temporary modes update label in real time.
+Chain mode, fan mode, copy-paste mode, and other temporary modes update label in real time.
 
 ---
 
@@ -451,10 +495,13 @@ Right-click empty graph:
 | <kbd>F2</kbd> | Rename state / sub-state machine / blend tree node / frame / layer / parameter |
 | <kbd>F3</kbd> | Rename clip / blend tree leaf / frame comments |
 | <kbd>Ctrl</kbd>+<kbd>C</kbd> | Copy transitions / blend tree nodes / frames |
-| <kbd>Ctrl</kbd>+<kbd>V</kbd> | Paste transitions / blend tree nodes |
+| <kbd>Ctrl</kbd>+<kbd>V</kbd> | Paste transitions / blend tree nodes / frames |
 | <kbd>Ctrl</kbd>+<kbd>Double-click</kbd> | Enter Chain Transition Mode |
-| <kbd>Esc</kbd> | Exit chain / paste / rename mode |
+| <kbd>Shift</kbd>+<kbd>Double-click</kbd> | Enter Fan Transition Mode |
+| <kbd>Esc</kbd> | Exit chain / fan / paste / rename mode |
 | <kbd>Enter</kbd> | Confirm inline rename |
+| <kbd>Ctrl</kbd>+<kbd>A</kbd> | Select all state nodes |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> | Select all transitions |
 | <kbd>Ctrl</kbd>+<kbd>]</kbd> | Frame: move up |
 | <kbd>Ctrl</kbd>+<kbd>[</kbd> | Frame: move down |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>]</kbd> | Frame: move to top |
@@ -472,6 +519,6 @@ Right-click empty graph:
 
 ## Undo Safety
 
-All operations (pack, unpack, state moves, transition creation, layer copy-paste, VRC parameter edits, etc.) fully undoable. Tool uses Unity's `Undo` system at all system boundaries → properly registers object creation and destruction.
+All operations within controller (pack, unpack, state moves, transition creation, layer copy-paste, VRC parameter edits, etc.) fully undoable. Tool uses Unity's `Undo` system at all system boundaries → properly registers object creation and destruction.
 
 Node Colors, Initial patching hook methods, EditorPrefs settings mechanism based on Ratz by ([rrazgriz](https://github.com/rrazgriz/RATS))
