@@ -64,6 +64,12 @@ namespace YGDR.Editor.Animation
 
                 if (currentEvent.type == EventType.ExecuteCommand && currentEvent.commandName == "Paste")
                 {
+                    if (PatchStateChainTransition.FanActive || PatchStateChainTransition.ChainActive || PatchStateNodeMenu._multiTransitionSources != null)
+                    {
+                        currentEvent.Use();
+                        return;
+                    }
+
                     var getActiveSM = AccessTools.Method(__instance.GetType(), "get_activeStateMachine");
                     var activeSM = getActiveSM?.Invoke(__instance, null) as AnimatorStateMachine;
                     if (activeSM != null)
@@ -206,6 +212,43 @@ namespace YGDR.Editor.Animation
                 if (currentEvent.type == EventType.KeyDown && currentEvent.control && currentEvent.keyCode == KeyCode.V
                     && PatchTransitionCopyPaste.HasClipboard)
                 {
+                    if (PatchStateChainTransition.FanActive)
+                    {
+                        PatchStateChainTransition.ToggleSeededFan();
+                        currentEvent.Use();
+                        return;
+                    }
+
+                    if (PatchStateNodeMenu._multiTransitionSources != null)
+                    {
+                        var destinationStates = Selection.objects.OfType<AnimatorState>().ToArray();
+                        bool isExitSelected = Selection.objects.Any(o => AnimatorEditorInit.ExitNodeType?.IsInstanceOfType(o) ?? false);
+                        var multiSources = PatchStateNodeMenu._multiTransitionSources;
+                        var multiSM = PatchStateNodeMenu._multiTransitionSM;
+                        var fromAnyState = PatchStateNodeMenu._multiTransitionFromAnyState;
+                        PatchStateNodeMenu._multiTransitionSources = null;
+                        PatchStateNodeMenu._multiTransitionSM = null;
+                        PatchStateNodeMenu._multiTransitionFromAnyState = false;
+                        var clipboard = PatchTransitionCopyPaste.GetClipboard();
+                        if (isExitSelected && !fromAnyState)
+                        {
+                            AnimatorTransitionOps.PasteExitTransitions(multiSM, multiSources, clipboard);
+                        }
+                        else if (!isExitSelected && fromAnyState && destinationStates.Length > 0)
+                        {
+                            foreach (var destinationState in destinationStates)
+                                AnimatorTransitionOps.PasteAnyStateTransitions(multiSM, destinationState, clipboard);
+                        }
+                        else if (!isExitSelected && !fromAnyState && destinationStates.Length > 0)
+                        {
+                            foreach (var sourceState in multiSources)
+                                foreach (var destinationState in destinationStates)
+                                    AnimatorTransitionOps.PasteTransitions(sourceState, destinationState, clipboard);
+                        }
+                        currentEvent.Use();
+                        return;
+                    }
+
                     var pasteSource = Selection.activeObject as AnimatorState;
                     if (pasteSource != null)
                     {
@@ -511,6 +554,7 @@ namespace YGDR.Editor.Animation
 
         internal static bool FanActive { get; private set; }
         internal static Rect FanSourceRect { get; private set; }
+        internal static bool SeededFanActive { get; private set; }
         private static AnimatorState _fanSource;
 
         internal static void Clear()
@@ -524,9 +568,15 @@ namespace YGDR.Editor.Animation
         internal static void ClearFan()
         {
             FanActive = false;
+            SeededFanActive = false;
             _fanSource = null;
             FanSourceRect = Rect.zero;
             SnapTarget = null;
+        }
+
+        internal static void ToggleSeededFan()
+        {
+            SeededFanActive = !SeededFanActive;
         }
 
         [HarmonyTargetMethod]
@@ -583,7 +633,10 @@ namespace YGDR.Editor.Animation
 
                 if (FanActive && currentEvent.clickCount == 1 && !currentEvent.control && !currentEvent.shift)
                 {
-                    AnimatorStateOps.AddChainTransition(_fanSource, nodeState);
+                    if (SeededFanActive)
+                        AnimatorTransitionOps.PasteTransitions(_fanSource, nodeState, PatchTransitionCopyPaste.GetClipboard());
+                    else
+                        AnimatorStateOps.AddChainTransition(_fanSource, nodeState);
                     SnapTarget = null;
                     currentEvent.Use();
                 }
@@ -605,6 +658,7 @@ namespace YGDR.Editor.Animation
         internal static Rect PasteSourceRect { get; private set; }
         internal static bool HasClipboard => _clipboard != null && _clipboard.Length > 0;
         internal static int ClipboardCount => _clipboard?.Length ?? 0;
+        internal static AnimatorTransitionOps.TransitionData[] GetClipboard() => _clipboard;
 
         /* Snapshots transition data at copy time so clipboard survives deletion of the originals. */
         internal static void SetClipboard(AnimatorStateTransition[] transitions) =>

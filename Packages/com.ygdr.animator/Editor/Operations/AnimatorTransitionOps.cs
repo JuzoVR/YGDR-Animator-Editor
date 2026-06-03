@@ -46,6 +46,33 @@ namespace YGDR.Editor.Animation
             EditorUtility.SetDirty(source);
         }
 
+        internal static void PasteExitTransitions(AnimatorStateMachine sm, AnimatorState[] sources, TransitionData[] clipboard)
+        {
+            Undo.RegisterCompleteObjectUndo(sources.Cast<UnityEngine.Object>().Concat(new UnityEngine.Object[] { sm }).ToArray(), "Paste Exit Transitions");
+            foreach (var sourceState in sources)
+                foreach (var template in clipboard)
+                {
+                    var newTransition = sourceState.AddExitTransition();
+                    Undo.RegisterCreatedObjectUndo(newTransition, "Paste Exit Transitions");
+                    CopySettings(newTransition, template);
+                }
+            foreach (var sourceState in sources) EditorUtility.SetDirty(sourceState);
+            EditorUtility.SetDirty(sm);
+        }
+
+        internal static void PasteAnyStateTransitions(AnimatorStateMachine sm, AnimatorState destination, TransitionData[] clipboard)
+        {
+            Undo.RegisterCompleteObjectUndo(sm, "Paste AnyState Transitions");
+            foreach (var template in clipboard)
+            {
+                var newTransition = sm.AddAnyStateTransition(destination);
+                Undo.RegisterCreatedObjectUndo(newTransition, "Paste AnyState Transitions");
+                CopySettings(newTransition, template);
+            }
+            EditorUtility.SetDirty(sm);
+            AnimatorLayerOps.RebuildAnimatorGraph();
+        }
+
         internal static void CopySettings(AnimatorStateTransition destination, AnimatorStateTransition source)
         {
             destination.hasExitTime         = source.hasExitTime;

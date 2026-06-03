@@ -214,7 +214,7 @@ namespace YGDR.Editor.Animation
             RebuildAnimatorGraph();
         }
 
-        static void RebuildAnimatorGraph()
+        internal static void RebuildAnimatorGraph()
         {
             if (AnimatorEditorInit.AnimatorControllerToolType == null) return;
             var animatorWindow = Resources.FindObjectsOfTypeAll(AnimatorEditorInit.AnimatorControllerToolType)

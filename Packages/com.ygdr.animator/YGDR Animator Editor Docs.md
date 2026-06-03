@@ -346,6 +346,13 @@ Right-click directly on selected transition arrow:
 
 ### Modes
 
+#### Copy-Paste Transitions
+
+Select one or more transitions → <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy. Click source → <kbd>Ctrl</kbd>+<kbd>V</kbd> → click destination → transitions paste with all conditions intact. Visual preview shows landing position. <kbd>Esc</kbd> cancels. Bottom bar shows `Paste N Transitions`.
+
+> [!NOTE]
+> Copied transitions are also the source for Seeded Fan and Seeded Multi-Transition. Copy transitions first before using either seeded mode.
+
 #### Chain Transition Mode
 
 <kbd>Ctrl</kbd>+<kbd>Double-click</kbd> on state node:
@@ -389,9 +396,13 @@ Click 1: B    Click 2: C         Esc
 > [!TIP]
 > Use Fan Mode to quickly wire one hub state (e.g. idle) to many destinations in one pass.
 
-#### Copy-Paste Transitions
+##### Seeded Fan Mode
 
-Select one or more transitions → <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy. click source → <kbd>Ctrl</kbd>+<kbd>V</kbd> → click destination → transitions paste with all conditions intact. Visual preview shows landing position. <kbd>Esc</kbd> cancels. Bottom bar shows `Paste N Transitions`.
+Requires transitions copied to clipboard first. While in Fan Mode, press <kbd>Ctrl</kbd>+<kbd>V</kbd> to seed clipboard transitions. Each click pastes copied transitions (all conditions and settings preserved) instead of creating a blank one. Bottom bar shows `Fan Mode : Seeded`. Press <kbd>Ctrl</kbd>+<kbd>V</kbd> again to toggle back to blank.
+
+##### Seeded Multi-Transition
+
+Requires transitions copied to clipboard first. While Multi-Transition is pending (bottom bar shows `Multi Transition — click destination`), select destination nodes then press <kbd>Ctrl</kbd>+<kbd>V</kbd> to immediately complete the operation using clipboard transitions instead of blank ones. No second click required. Applies to all destination types: state → state, AnyState → state, and state → Exit. All copied conditions and settings are preserved.
 
 ### Inline Renaming
 
@@ -498,6 +509,8 @@ Right-click empty graph:
 | <kbd>Ctrl</kbd>+<kbd>V</kbd> | Paste transitions / blend tree nodes / frames |
 | <kbd>Ctrl</kbd>+<kbd>Double-click</kbd> | Enter Chain Transition Mode |
 | <kbd>Shift</kbd>+<kbd>Double-click</kbd> | Enter Fan Transition Mode |
+| <kbd>Ctrl</kbd>+<kbd>V</kbd> (in Fan Mode) | Toggle Seeded Fan — paste clipboard transitions instead of blank |
+| <kbd>Ctrl</kbd>+<kbd>V</kbd> (in Multi-Transition) | Complete with seeded transitions using current selection as destinations |
 | <kbd>Esc</kbd> | Exit chain / fan / paste / rename mode |
 | <kbd>Enter</kbd> | Confirm inline rename |
 | <kbd>Ctrl</kbd>+<kbd>A</kbd> | Select all state nodes |

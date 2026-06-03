@@ -492,28 +492,18 @@ namespace YGDR.Editor.Animation
                     var newType = GetParamType(newParam);
                     var sourceType = GetParamType(capturedCondition.parameter);
                     AnimatorConditionMode seededMode;
-                    float seededThreshold;
                     if (sourceType == newType)
-                    {
                         seededMode = capturedCondition.mode;
-                        seededThreshold = capturedCondition.threshold;
-                    }
                     else if (AnimatorParameterOps.TryConvertCondition(capturedCondition, sourceType, newType, out var converted))
-                    {
                         seededMode = converted.mode;
-                        seededThreshold = converted.threshold;
-                    }
                     else
-                    {
                         seededMode = DefaultModeForType(newType);
-                        seededThreshold = 0f;
-                    }
                     ReplaceConditionOnTargets(capturedEntry, new AnimatorCondition
                     {
                         parameter = newParam,
                         mode      = seededMode,
-                        threshold = seededThreshold
-                    });
+                        threshold = 0f
+                    }, preserveThreshold: true);
                 });
 
             if (duplicateParameters.Contains((entry.owner, condition.parameter)))
@@ -547,8 +537,8 @@ namespace YGDR.Editor.Animation
                             {
                                 parameter = condition.parameter,
                                 mode = conditionMode,
-                                threshold = condition.threshold
-                            });
+                                threshold = 0f
+                            }, preserveThreshold: true);
                         });
                     }
 
@@ -603,8 +593,9 @@ namespace YGDR.Editor.Animation
             _                             => mode.ToString()
         };
 
-        /* Replaces the entry's condition with replacement on one transition (individual mode) or all selected transitions (shared mode). */
-        void ReplaceConditionOnTargets(CondEntry entry, AnimatorCondition replacement)
+        /* Replaces the entry's condition with replacement on one transition (individual mode) or all selected transitions (shared mode).
+           When preserveThreshold is true, each target keeps its own existing threshold — only parameter and mode are overwritten. */
+        void ReplaceConditionOnTargets(CondEntry entry, AnimatorCondition replacement, bool preserveThreshold = false)
         {
             InvalidateConditionCache();
             if (!_showSharedConditions)
@@ -618,7 +609,10 @@ namespace YGDR.Editor.Animation
                 {
                     int idx = entry.IndexFor(transition);
                     if (idx < 0 || idx >= transition.conditions.Length) continue;
-                    RebuildConditions(transition, idx, replacement);
+                    var actual = preserveThreshold
+                        ? new AnimatorCondition { parameter = replacement.parameter, mode = replacement.mode, threshold = transition.conditions[idx].threshold }
+                        : replacement;
+                    RebuildConditions(transition, idx, actual);
                 }
             }
         }
